@@ -4,4 +4,5 @@
 pub mod capture;
 pub mod dispmap;
 pub mod geometry;
+pub mod render;
 pub mod spike;

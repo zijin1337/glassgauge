@@ -31,6 +31,7 @@ pub fn run(which: &str, hwnd: isize, w: u32, h: u32, x: i32, y: i32) {
         "b" => spike_b(hwnd, w, h),
         "a" => spike_a(hwnd, x, y, w, h),
         "cap" => spike_cap(hwnd, x, y, w, h),
+        "pipe" => spike_pipe(hwnd, x, y, w, h),
         other => Err(format!("unknown spike '{other}'")),
     };
     let msg = match &res {
@@ -253,10 +254,14 @@ fn spike_cap(hwnd: isize, x: i32, y: i32, w: u32, h: u32) -> Result<String, Stri
     let idx = geometry::pick_output(&rects, x + w as i32 / 2, y + h as i32 / 2)
         .ok_or("no outputs")?;
     let mut ch = capture::Channel::new(outputs[idx])?;
-    let win = geometry::Rect::new(x, y, x + w as i32, y + h as i32);
-    let region =
-        geometry::crop_region(win, 24, ch.output_rect).ok_or("window outside output")?;
-    ch.set_region(region)?;
+    let o = ch.output_rect;
+    let win_local = geometry::Rect::new(
+        x - o.left,
+        y - o.top,
+        x - o.left + w as i32,
+        y - o.top + h as i32,
+    );
+    ch.set_geometry(win_local, 24)?;
 
     let mut dumped = 0u32;
     let mut polls = 0u32;
@@ -274,6 +279,74 @@ fn spike_cap(hwnd: isize, x: i32, y: i32, w: u32, h: u32) -> Result<String, Stri
         }
     }
     Ok(format!("dumped {dumped} region frames in {polls} polls"))
+}
+
+/* ---------- spike pipe：整条管线验收（Phase 3） ---------- */
+
+fn spike_pipe(hwnd: isize, x: i32, y: i32, w: u32, h: u32) -> Result<String, String> {
+    use crate::engine::{capture, geometry, render};
+    unsafe {
+        SetWindowDisplayAffinity(HWND(hwnd as *mut _), WDA_EXCLUDEFROMCAPTURE)
+            .map_err(e("SetWindowDisplayAffinity"))?;
+    }
+    let dpr = w as f32 / 244.0; // 折叠态逻辑宽固定 244
+    let margin = (24.0 * dpr).round() as i32;
+    let params = render::GlassParams {
+        sigma: 14.0 / 2.0 * dpr,
+        displacement: 24.0 * dpr,
+        band: 16.0 * dpr,
+        radius: 20.0 * dpr,
+        margin,
+        saturate: 1.12,
+    };
+
+    let outputs = capture::list_outputs()?;
+    let rects: Vec<_> = outputs.iter().map(|o| o.rect).collect();
+    let idx = geometry::pick_output(&rects, x + w as i32 / 2, y + h as i32 / 2)
+        .ok_or("no outputs")?;
+    let mut ch = capture::Channel::new(outputs[idx])?;
+    let o = ch.output_rect;
+    let win_local = geometry::Rect::new(
+        x - o.left,
+        y - o.top,
+        x - o.left + w as i32,
+        y - o.top + h as i32,
+    );
+    ch.set_geometry(win_local, margin)?;
+
+    let mut rend = render::Renderer::new(ch.device(), hwnd)?;
+    rend.set_geometry(w, h, params)?;
+
+    let mut rendered = 0u32;
+    let mut dumped = false;
+    for i in 0..80u32 {
+        // ~8s
+        match ch.poll(100, false) {
+            capture::Poll::Updated => {
+                if let Some(tex) = ch.region_texture() {
+                    let tex = tex.clone();
+                    rend.render(&tex, ch.generation())?;
+                    rendered += 1;
+                    if !dumped && i > 30 {
+                        let (dw, dh, bytes) = rend.render_to_cpu(&tex, ch.generation())?;
+                        write_png_bgra(
+                            &crate::window::appdata_dir().join("spike-pipe.png"),
+                            dw,
+                            dh,
+                            &bytes,
+                        )?;
+                        dumped = true;
+                    }
+                }
+            }
+            capture::Poll::NoChange => {}
+            capture::Poll::Lost(err) => return Err(format!("channel lost: {err}")),
+        }
+    }
+    Ok(format!(
+        "rendered {rendered} frames, dump={} (margin {margin}px, dpr {dpr:.2})",
+        dumped
+    ))
 }
 
 /// 读 staging 纹理上分散的 4 个探针点（每点取 BGR 之和），判断是否全零帧。
