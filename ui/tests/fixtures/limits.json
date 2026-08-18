@@ -1,0 +1,26 @@
+{
+  "subject": "usr_e37deda657c34cd79e63c0ad587c3e93",
+  "suspended": false,
+  "unmetered": false,
+  "degraded": false,
+  "windows": [
+    {
+      "name": "5h",
+      "used": 5450.59305,
+      "budget": 26096,
+      "reset_at": 1787075656
+    },
+    {
+      "name": "7d",
+      "used": 13621.348735,
+      "budget": 74560,
+      "reset_at": 1787577758
+    },
+    {
+      "name": "30d",
+      "used": 13621.348735,
+      "budget": 320000,
+      "reset_at": 1789565221
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+/* glassgauge — 雪白磨砂（spec §6/§7）。颜色/透明度由 theme.js 写 CSS 变量。 */
+* { box-sizing: border-box; user-select: none; }
+
+:root {
+  --alpha: 0.16;
+  --ink: #171a22;
+  --accent: #3b82d8;
+  --shell-border: rgba(255, 255, 255, 0.72);
+  --track: rgba(0, 0, 0, 0.12);
+  --tick: rgba(0, 0, 0, 0.45);
+  --radius-collapsed: 20px;
+  --radius-card: 14px;
+}
+
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font: 13px/1.45 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  color: var(--ink);
+}
+
+/* L2：壁纸折射层，位置由 crop.js 驱动（Phase 2） */
+#wallpaper-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: var(--radius-collapsed);
+}
+#wallpaper-layer img {
+  position: absolute;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+.shell {
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-collapsed);
+  background: rgba(255, 255, 255, var(--alpha));
+  border: 1px solid var(--shell-border);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.9),
+              inset 0 0 20px -10px rgba(0, 0, 0, 0.14);
+}
+
+/* 折叠态 */
+.top { display: flex; align-items: center; gap: 8px; }
+.dot {
+  width: 6.5px; height: 6.5px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 7px var(--accent);
+  flex: none;
+}
+.dot.grey { background: #9aa0ab; box-shadow: none; }
+.dot.red { background: #e2504c; box-shadow: 0 0 7px #e2504c; }
+.dot.amber { background: #e8a13d; box-shadow: 0 0 7px #e8a13d; }
+.dot.blue { background: #4c9be2; box-shadow: 0 0 7px #4c9be2; }
+.who { font-size: 10.5px; opacity: 0.72; white-space: nowrap; }
+.pct {
+  margin-left: auto;
+  font-size: 22px; font-weight: 800; letter-spacing: -0.5px;
+  color: var(--accent);
+}
+.bar {
+  position: relative;
+  height: 6px; margin-top: 8px;
+  border-radius: 99px;
+  background: var(--track);
+}
+.fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  border-radius: 99px;
+  background: var(--accent);
+}
+.tick {
+  position: absolute; top: -2px; bottom: -2px; width: 2px;
+  border-radius: 2px;
+  background: var(--tick);
+}
+.stale { opacity: 0.55; }
