@@ -44,14 +44,15 @@ html, body {
   height: 100%;
 }
 
-/* 玻璃光学（spec §6）：亚克力只提供实时模糊，玻璃的辨识度靠这里 ——
-   顶部受光棱、左棱、右下弱反光、底部厚度内影、斜向反光扫过。 */
+/* 玻璃光学（spec §6）：玻璃本体（折射/模糊）由引擎或壁纸层提供，辨识度靠这里 ——
+   顶部受光棱、左棱、右下弱反光、底部厚度内影、斜向反光扫过。
+   整体向内收 1px：白色元素必须全部落在不透明玻璃上，轮廓弧由玻璃层独占，
+   否则两层抗锯齿弧错位处的白像素直接叠在裸桌面上，圆角出白边。 */
 .shell {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 1px;
   padding: 10px 12px;
-  border-radius: var(--radius-collapsed);
+  border-radius: calc(var(--radius-collapsed) - 1px);
   background: rgba(255, 255, 255, var(--alpha));
   border: 1px solid var(--shell-border);
   box-shadow:
