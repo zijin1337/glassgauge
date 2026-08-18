@@ -37,10 +37,11 @@ export function analyzePixels(d) {
 /**
  * 采样 + accent 配置（auto | blue | amber | ink | #hex）→ CSS 变量值。
  * 壁纸全灰（无饱和像素）时 auto 退回蓝，避免直方图空转出红。
+ * inkOverride（配置 ink 键）钉死字色，不再随壁纸明暗翻转。
  */
-export function themeVars(sample, mode = "auto") {
+export function themeVars(sample, mode = "auto", inkOverride = null) {
   const dark = sample.lum < 0.5; // 壁纸偏暗 → 亮字
-  const ink = dark ? "#ffffff" : "#171a22";
+  const ink = inkOverride ?? (dark ? "#ffffff" : "#171a22");
   const blue = `hsl(212 82% ${dark ? 66 : 46}%)`;
   let accent;
   if (mode === "ink") accent = ink;

@@ -48,6 +48,7 @@ node --test ui/tests/*.test.js       # JS 单测（派生计算/裁剪映射/位
   "expand": "always",         // always 常驻展开 | hover 悬停展开
   "autostart": true,          // 开机自启（HKCU Run 键，随 exe 位置自动更新）
   "accent": "auto",           // 主色：auto 壁纸取色（绕开绿）| blue | amber | ink | "#hex"
+  "ink": "#000000",           // 可选：钉死字色（省略 = 随壁纸明暗自动黑/白字）
   "planLabel": "MAX",         // 徽章文字
   "validUntil": "2027-08-11", // 套餐到期（展示用）
   "refreshSeconds": 60,

@@ -15,7 +15,7 @@ export async function applyWallpaperTheme(config) {
     const ctx = c.getContext("2d", { willReadFrequently: true });
     ctx.drawImage(img, 0, 0, 96, 60);
     const sample = analyzePixels(ctx.getImageData(0, 0, 96, 60).data);
-    const v = themeVars(sample, config?.accent ?? "auto");
+    const v = themeVars(sample, config?.accent ?? "auto", config?.ink ?? null);
     const root = document.documentElement.style;
     root.setProperty("--ink", v.ink);
     root.setProperty("--accent", v.accent);

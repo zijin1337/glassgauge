@@ -57,3 +57,10 @@ test("accent 覆写：#hex 直通、ink 用字色、amber 固定琥珀", () => {
   assert.equal(themeVars(s, "ink").accent, "#ffffff");
   assert.ok(themeVars(s, "amber").accent.startsWith("hsl(36"));
 });
+
+test("ink 覆写钉死字色，暗壁纸也不翻白，accent=ink 模式跟着钉", () => {
+  const s = analyzePixels(pixels(0, 80, 255)); // 暗壁纸，默认会白字
+  const v = themeVars(s, "auto", "#000000");
+  assert.equal(v.ink, "#000000");
+  assert.equal(themeVars(s, "ink", "#000000").accent, "#000000");
+});
