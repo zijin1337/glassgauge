@@ -82,7 +82,9 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     let win = app.get_webview_window("main").expect("main window missing");
 
     let cfg: Value = serde_json::from_str(&get_config()).unwrap_or(Value::Null);
-    let acrylic = cfg.get("acrylic").and_then(Value::as_bool).unwrap_or(true);
+    // 默认关：窗口级亚克力涂满整个矩形窗口，CSS 圆角裁不掉四角，会露出灰框。
+    // 玻璃感由 L2 壁纸折射层提供；想要额外的实时模糊可在配置里手动打开。
+    let acrylic = cfg.get("acrylic").and_then(Value::as_bool).unwrap_or(false);
     let on_top = cfg
         .get("alwaysOnTop")
         .and_then(Value::as_bool)
@@ -104,6 +106,7 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     }
     let _ = win.show();
 
+    crate::wallpaper::start_watcher(app.handle().clone());
     build_tray(app.handle(), on_top)?;
     Ok(())
 }
