@@ -73,9 +73,16 @@ pub struct Channel {
     dup: IDXGIOutputDuplication,
     /// 该输出的桌面坐标
     pub output_rect: Rect,
-    /// 抓取区（输出局部坐标）
-    region: Rect,
+    /// 理想抓取区 = 窗口±margin（输出局部，可能越界）——纹理尺寸恒等于它，
+    /// 保证窗口在纹理里永远位于 (margin, margin)，位移图无须随屏边 clamp 变化。
+    desired: Rect,
+    /// 实际可拷区 = desired ∩ 输出边界（输出局部）
+    crop: Rect,
+    /// crop 相对 desired 的偏移 = 拷贝进纹理的目标位置
+    pad: (i32, i32),
     region_tex: Option<ID3D11Texture2D>,
+    /// 纹理重建代数：渲染侧据此重建 D2D 位图包装
+    generation: u64,
     has_content: bool,
 }
 
@@ -117,8 +124,11 @@ impl Channel {
                 ctx,
                 dup,
                 output_rect: info.rect,
-                region: Rect::new(0, 0, 0, 0),
+                desired: Rect::new(0, 0, 0, 0),
+                crop: Rect::new(0, 0, 0, 0),
+                pad: (0, 0),
                 region_tex: None,
+                generation: 0,
                 has_content: false,
             })
         }
@@ -130,8 +140,8 @@ impl Channel {
     pub fn context(&self) -> &ID3D11DeviceContext {
         &self.ctx
     }
-    pub fn region(&self) -> Rect {
-        self.region
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
     pub fn region_texture(&self) -> Option<&ID3D11Texture2D> {
         if self.has_content {
@@ -141,18 +151,37 @@ impl Channel {
         }
     }
 
-    /// 设定/变更抓取区（输出局部坐标）。尺寸变了重建常驻纹理。
-    pub fn set_region(&mut self, region: Rect) -> Result<(), String> {
-        let size_changed = region.width() != self.region.width()
-            || region.height() != self.region.height()
+    /// 设定/变更几何：窗口矩形（**输出局部坐标**）+ margin。
+    /// 纹理尺寸 = 窗口±margin，屏边越界部分不拷（留旧值/零），窗口恒在 (margin,margin)。
+    pub fn set_geometry(&mut self, win_local: Rect, margin: i32) -> Result<(), String> {
+        let desired = Rect::new(
+            win_local.left - margin,
+            win_local.top - margin,
+            win_local.right + margin,
+            win_local.bottom + margin,
+        );
+        let bounds = Rect::new(0, 0, self.output_rect.width(), self.output_rect.height());
+        let crop = Rect::new(
+            desired.left.max(bounds.left),
+            desired.top.max(bounds.top),
+            desired.right.min(bounds.right),
+            desired.bottom.min(bounds.bottom),
+        );
+        if crop.left >= crop.right || crop.top >= crop.bottom {
+            return Err("window does not intersect output".into());
+        }
+        let size_changed = desired.width() != self.desired.width()
+            || desired.height() != self.desired.height()
             || self.region_tex.is_none();
-        let moved = region != self.region;
-        self.region = region;
+        let moved = desired != self.desired;
+        self.desired = desired;
+        self.crop = crop;
+        self.pad = (crop.left - desired.left, crop.top - desired.top);
         if size_changed {
             unsafe {
                 let desc = D3D11_TEXTURE2D_DESC {
-                    Width: region.width() as u32,
-                    Height: region.height() as u32,
+                    Width: desired.width() as u32,
+                    Height: desired.height() as u32,
                     MipLevels: 1,
                     ArraySize: 1,
                     Format: DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -170,11 +199,12 @@ impl Channel {
                     .CreateTexture2D(&desc, None, Some(&mut tex))
                     .map_err(|e| format!("region tex: {e}"))?;
                 self.region_tex = tex;
+                self.generation += 1;
             }
             self.has_content = false;
         }
         if moved {
-            // 位置变了但尺寸没变：纹理还在，内容已经对不上位 → 下一帧强制重拷
+            // 位置变了：纹理内容对不上位，下一帧强制重拷
             self.has_content = false;
         }
         Ok(())
@@ -263,25 +293,33 @@ impl Channel {
     }
 
     fn intersects(&self, r: Rect) -> bool {
-        r.left < self.region.right
-            && r.right > self.region.left
-            && r.top < self.region.bottom
-            && r.bottom > self.region.top
+        r.left < self.crop.right
+            && r.right > self.crop.left
+            && r.top < self.crop.bottom
+            && r.bottom > self.crop.top
     }
 
     fn copy_region_from(&self, desktop: &ID3D11Texture2D) -> Result<(), String> {
         let tex = self.region_tex.as_ref().ok_or("no region tex")?;
         unsafe {
             let src = D3D11_BOX {
-                left: self.region.left as u32,
-                top: self.region.top as u32,
+                left: self.crop.left as u32,
+                top: self.crop.top as u32,
                 front: 0,
-                right: self.region.right as u32,
-                bottom: self.region.bottom as u32,
+                right: self.crop.right as u32,
+                bottom: self.crop.bottom as u32,
                 back: 1,
             };
-            self.ctx
-                .CopySubresourceRegion(tex, 0, 0, 0, 0, desktop, 0, Some(&src));
+            self.ctx.CopySubresourceRegion(
+                tex,
+                0,
+                self.pad.0 as u32,
+                self.pad.1 as u32,
+                0,
+                desktop,
+                0,
+                Some(&src),
+            );
         }
         Ok(())
     }
