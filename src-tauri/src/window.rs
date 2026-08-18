@@ -78,29 +78,92 @@ fn snap_primary_topright(win: &WebviewWindow) {
     let _ = win.set_position(PhysicalPosition::new(x, y));
 }
 
+/// 生效模式（spec §9）：`mode` 键优先；旧 `acrylic` 布尔兼容映射；都没有 → refract。
+fn config_mode(cfg: &Value) -> String {
+    if let Some(m) = cfg.get("mode").and_then(Value::as_str) {
+        return m.to_string();
+    }
+    match cfg.get("acrylic").and_then(Value::as_bool) {
+        Some(true) => "live".into(),
+        Some(false) => "wallpaper".into(),
+        None => "refract".into(),
+    }
+}
+
+fn send_engine_geometry(win: &WebviewWindow, handle: &crate::engine::EngineHandle) {
+    let (Ok(pos), Ok(size), Ok(scale)) = (
+        win.outer_position(),
+        win.outer_size(),
+        win.scale_factor(),
+    ) else {
+        return;
+    };
+    let rect = crate::engine::geometry::Rect::new(
+        pos.x,
+        pos.y,
+        pos.x + size.width as i32,
+        pos.y + size.height as i32,
+    );
+    let _ = handle
+        .0
+        .lock()
+        .unwrap()
+        .send(crate::engine::Cmd::Geometry {
+            win: rect,
+            dpr: scale,
+        });
+}
+
 pub fn setup(app: &mut App) -> tauri::Result<()> {
     let win = app.get_webview_window("main").expect("main window missing");
 
     let cfg: Value = serde_json::from_str(&get_config()).unwrap_or(Value::Null);
-    // acrylic=true（默认）= 实时模式：DWM 亚克力实时模糊窗口后面的真实内容，
-    //   四角用 DWM 原生圆角裁（这是唯一能裁掉亚克力材质的办法，CSS 裁不到它），
-    //   前端把圆角同步成 8px 并停用壁纸折射层。
-    // acrylic=false = 壁纸折射模式：窗口全透明，20px 药丸圆角，玻璃只折射壁纸。
-    let acrylic = cfg.get("acrylic").and_then(Value::as_bool).unwrap_or(true);
+    // mode（spec §9）：refract=原生实时折射（默认）| live=DWM 亚克力（8px 圆角）
+    // | wallpaper=壁纸折射。refract 失败时引擎自己降级到 wallpaper 并广播。
+    let mode = config_mode(&cfg);
+    app.manage(crate::engine::GlassMode(std::sync::Mutex::new(mode.clone())));
     let on_top = cfg
         .get("alwaysOnTop")
         .and_then(Value::as_bool)
         .unwrap_or(true);
     let _ = win.set_always_on_top(on_top);
 
-    if acrylic {
-        // 失败（旧系统/远程桌面等）只降级为纯透明，不报错弹窗
-        if let Err(e) = window_vibrancy::apply_acrylic(&win, Some((255, 255, 255, 5))) {
-            eprintln!("acrylic unavailable, transparent fallback: {e}");
-        }
-    }
-    // 两种模式都裁：8px 的 DWM 圆角是 20px CSS 圆角的超集，壁纸模式下不碰可见内容
+    // 所有模式都裁 DWM 原生圆角：live 模式靠它裁亚克力四角；
+    // refract/wallpaper 的 20px CSS/原生圆角是 8px 的子集，不受影响。
     dwm_round_corners(&win);
+
+    let spiking = std::env::var("GG_SPIKE").is_ok();
+    match mode.as_str() {
+        "live" => {
+            // 失败（旧系统/远程桌面等）只降级为纯透明，不报错弹窗
+            if let Err(e) = window_vibrancy::apply_acrylic(&win, Some((255, 255, 255, 5))) {
+                eprintln!("acrylic unavailable, transparent fallback: {e}");
+            }
+        }
+        "refract" if !spiking => {
+            let hwnd = win.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+            // 截图隐形：进程期常开（spec §8），避免切换闪烁
+            crate::engine::exclude_from_capture(hwnd);
+            // 初始几何在位置恢复后（setup 末尾）再发，这里只建线程和事件桥
+            let eng = crate::engine::start(
+                app.handle().clone(),
+                hwnd,
+                crate::engine::GlassCfg::from_config(&cfg),
+            );
+            app.manage(eng);
+            let app2 = app.handle().clone();
+            let win2 = win.clone();
+            win.on_window_event(move |ev| {
+                use tauri::WindowEvent::{Moved, Resized, ScaleFactorChanged};
+                if matches!(ev, Moved(_) | Resized(_) | ScaleFactorChanged { .. }) {
+                    if let Some(h) = app2.try_state::<crate::engine::EngineHandle>() {
+                        send_engine_geometry(&win2, &h);
+                    }
+                }
+            });
+        }
+        _ => {} // wallpaper（或 spike 占用窗口时）：前端壁纸层处理
+    }
 
     match load_state() {
         Some(st) if monitor_contains(&win, st.x, st.y) => {
@@ -110,7 +173,12 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     }
     let _ = win.show();
 
-    // Phase 0 技术验证入口（GG_SPIKE=b|a），验证完删除
+    // 位置已恢复：现在发初始几何，引擎第一帧就在正确位置
+    if let Some(h) = app.try_state::<crate::engine::EngineHandle>() {
+        send_engine_geometry(&win, &h);
+    }
+
+    // Phase 0-3 技术验证入口（GG_SPIKE=b|a|cap|pipe），Phase 5 清理
     if let Ok(which) = std::env::var("GG_SPIKE") {
         let hwnd = win.hwnd().map(|h| h.0 as isize).unwrap_or(0);
         let pos = win
@@ -126,6 +194,12 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     crate::wallpaper::start_watcher(app.handle().clone());
     build_tray(app.handle(), on_top)?;
     Ok(())
+}
+
+/// 前端启动时查询生效模式（之后靠 glass-mode 事件跟进）。
+#[tauri::command]
+pub fn get_glass_mode(state: tauri::State<crate::engine::GlassMode>) -> String {
+    state.0.lock().unwrap().clone()
 }
 
 /// Win11 原生圆角 + 去掉 DWM 描边。DWM 在合成层裁整个窗口面（含亚克力材质），
@@ -154,7 +228,16 @@ fn build_tray(app: &AppHandle, initial_on_top: bool) -> tauri::Result<()> {
     let refresh = MenuItem::with_id(app, "refresh", "立即刷新", true, None::<&str>)?;
     let pin = CheckMenuItem::with_id(app, "pin", "置顶", true, initial_on_top, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&refresh, &pin, &quit])?;
+    // 截图照不到挂件（refract 剔除），debug 构建给一条落盘出口做验收
+    let dump = if cfg!(debug_assertions) {
+        Some(MenuItem::with_id(app, "dump", "导出玻璃帧", true, None::<&str>)?)
+    } else {
+        None
+    };
+    let menu = match &dump {
+        Some(d) => Menu::with_items(app, &[&refresh, d, &pin, &quit])?,
+        None => Menu::with_items(app, &[&refresh, &pin, &quit])?,
+    };
 
     let pinned = Arc::new(AtomicBool::new(initial_on_top));
 
@@ -166,6 +249,14 @@ fn build_tray(app: &AppHandle, initial_on_top: bool) -> tauri::Result<()> {
         .on_menu_event(move |app, ev| match ev.id().as_ref() {
             "refresh" => {
                 let _ = app.emit("manual-refresh", ());
+                if let Some(h) = app.try_state::<crate::engine::EngineHandle>() {
+                    let _ = h.0.lock().unwrap().send(crate::engine::Cmd::Refresh);
+                }
+            }
+            "dump" => {
+                if let Some(h) = app.try_state::<crate::engine::EngineHandle>() {
+                    let _ = h.0.lock().unwrap().send(crate::engine::Cmd::Dump);
+                }
             }
             "pin" => {
                 if let Some(w) = app.get_webview_window("main") {

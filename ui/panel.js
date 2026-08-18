@@ -1,6 +1,6 @@
 // 渲染与数据环。派生计算全部来自 derive.js；本文件只做取数节奏和 DOM。
 import { deriveAll } from "./derive.js";
-import { initGlass, recropTo, reloadWallpaper } from "./glass.js";
+import { initGlass, recropTo, reloadWallpaper, teardownGlass } from "./glass.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -11,9 +11,17 @@ let lastGood = null; // 最后一次成功的 {json, at}
 let timer = null;
 let backoffMs = 0; // 0 = 正常节奏；失败后 5s→30s
 
-/** acrylic!=false = 实时模式：DWM 亚克力模糊真实内容；false = 壁纸折射模式。 */
-function liveMode() {
-  return config?.acrylic !== false;
+// 生效玻璃模式（spec §4）：refract=原生折射 | wallpaper=壁纸折射兜底 | live=DWM 亚克力。
+// 启动时问 get_glass_mode，之后由 glass-mode 事件驱动（引擎降级/恢复）。
+let glassMode = "refract";
+
+function applyRadius() {
+  const g = config?.glass ?? {};
+  // live 模式 DWM 只能裁 ~8px 圆角，CSS 必须一致；refract/wallpaper 都是 20px 药丸
+  document.documentElement.style.setProperty(
+    "--radius-collapsed",
+    glassMode === "live" ? "8px" : (g.radiusCollapsed ?? 20) + "px",
+  );
 }
 
 async function loadConfig() {
@@ -21,12 +29,8 @@ async function loadConfig() {
   const g = config.glass ?? {};
   const root = document.documentElement.style;
   if (g.alpha != null) root.setProperty("--alpha", g.alpha);
-  // 实时模式下 DWM 只能裁 ~8px 圆角，CSS 必须一致，否则四角又露出材质
-  root.setProperty(
-    "--radius-collapsed",
-    liveMode() ? "8px" : (g.radiusCollapsed ?? 20) + "px",
-  );
   if (g.radiusCard != null) root.setProperty("--radius-card", g.radiusCard + "px");
+  applyRadius();
 }
 
 /* ---------- 取数节奏：正常 refreshSeconds 轮询；失败 5s→30s 退避 ---------- */
@@ -124,17 +128,24 @@ appWindow.onMoved(({ payload }) => {
 /* ---------- 启动 ---------- */
 (async () => {
   await loadConfig();
+  glassMode = await invoke("get_glass_mode").catch(() => "wallpaper");
+  applyRadius();
   render(true); // 先画"加载中"
-  // 壁纸折射层只在非实时模式启用；实时模式的玻璃由 OS 亚克力提供。
-  // 失败只降级为素壳，不挡数据。
-  if (!liveMode()) initGlass(config).catch((e) => console.error("glass init:", e));
+  // 壁纸折射层只在 wallpaper 模式（含引擎降级）启用；失败只降级为素壳，不挡数据
+  if (glassMode === "wallpaper") initGlass(config).catch((e) => console.error("glass init:", e));
+  await listen("glass-mode", ({ payload }) => {
+    glassMode = payload;
+    applyRadius();
+    if (payload === "wallpaper") initGlass(config).catch(() => {});
+    else teardownGlass();
+  });
   await listen("manual-refresh", () => {
     // 托盘刷新 = 配置热载 + 重读壁纸 + 立即拉数
     loadConfig().then(tick);
-    if (!liveMode()) reloadWallpaper().catch(() => {});
+    if (glassMode === "wallpaper") reloadWallpaper().catch(() => {});
   });
   await listen("wallpaper-changed", () => {
-    if (!liveMode()) reloadWallpaper().catch(() => {});
+    if (glassMode === "wallpaper") reloadWallpaper().catch(() => {});
   });
   tick();
 })();

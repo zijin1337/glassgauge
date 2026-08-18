@@ -62,6 +62,18 @@ export function recropTo(px, py) {
   el.style.backgroundPosition = `${p.tx + MARGIN}px ${p.ty + MARGIN}px`;
 }
 
+/** 退出壁纸模式（引擎恢复 refract）：清掉壁纸层，玻璃交还原生引擎。 */
+export function teardownGlass() {
+  st = null;
+  const el = document.getElementById("wallpaper-glass");
+  if (el) {
+    el.style.backgroundImage = "";
+    el.style.filter = "";
+  }
+  const defs = document.getElementById("filter-defs");
+  if (defs) defs.innerHTML = "";
+}
+
 /** 壁纸文件变了（wallpaper-changed 事件 / 托盘刷新）：重读重裁。 */
 export async function reloadWallpaper() {
   if (!st) return;

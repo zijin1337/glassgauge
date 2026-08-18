@@ -11,6 +11,7 @@ fn main() {
         .manage(relay::RelayState::default())
         .invoke_handler(tauri::generate_handler![
             window::get_config,
+            window::get_glass_mode,
             window::save_state,
             relay::fetch_limits,
             wallpaper::get_wallpaper,
