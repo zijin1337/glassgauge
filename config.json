@@ -7,8 +7,8 @@
   "accent": "auto",
   "wallpaperOffset": [0, 0],
   "glass": {
-    "alpha": 0.055,
-    "blur": 11,
+    "alpha": 0.03,
+    "blur": 4,
     "displacement": 24,
     "band": 16,
     "radiusCollapsed": 20,
