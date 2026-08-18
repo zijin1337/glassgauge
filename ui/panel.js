@@ -1,6 +1,7 @@
 // 渲染与数据环。派生计算全部来自 derive.js；本文件只做取数节奏和 DOM。
 import { deriveAll } from "./derive.js";
 import { initGlass, recropTo, reloadWallpaper, teardownGlass } from "./glass.js";
+import { applyWallpaperTheme } from "./theme.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -212,6 +213,7 @@ appWindow.onMoved(({ payload }) => {
   glassMode = await invoke("get_glass_mode").catch(() => "wallpaper");
   applyRadius();
   render(true); // 先画"加载中"
+  applyWallpaperTheme(config); // 主色/明暗跟壁纸走（与玻璃模式无关）
   // 壁纸折射层只在 wallpaper 模式（含引擎降级）启用；失败只降级为素壳，不挡数据
   if (glassMode === "wallpaper") initGlass(config).catch((e) => console.error("glass init:", e));
   await listen("glass-mode", ({ payload }) => {
@@ -221,11 +223,15 @@ appWindow.onMoved(({ payload }) => {
     else teardownGlass();
   });
   await listen("manual-refresh", () => {
-    // 托盘刷新 = 配置热载 + 重读壁纸 + 立即拉数
-    loadConfig().then(tick);
+    // 托盘刷新 = 配置热载 + 重取色 + 重读壁纸 + 立即拉数
+    loadConfig().then(() => {
+      applyWallpaperTheme(config);
+      tick();
+    });
     if (glassMode === "wallpaper") reloadWallpaper().catch(() => {});
   });
   await listen("wallpaper-changed", () => {
+    applyWallpaperTheme(config);
     if (glassMode === "wallpaper") reloadWallpaper().catch(() => {});
   });
   tick();
