@@ -30,6 +30,7 @@ pub fn run(which: &str, hwnd: isize, w: u32, h: u32, x: i32, y: i32) {
     let res = match which {
         "b" => spike_b(hwnd, w, h),
         "a" => spike_a(hwnd, x, y, w, h),
+        "cap" => spike_cap(hwnd, x, y, w, h),
         other => Err(format!("unknown spike '{other}'")),
     };
     let msg = match &res {
@@ -237,6 +238,42 @@ fn spike_a(hwnd: isize, x: i32, y: i32, w: u32, h: u32) -> Result<String, String
         write_png_bgra(&path, rw, rh, &bytes)?;
         Ok(format!("dumped {rw}x{rh} region to {}", path.display()))
     }
+}
+
+/* ---------- spike cap：抓取通道验收（Phase 2） ---------- */
+
+fn spike_cap(hwnd: isize, x: i32, y: i32, w: u32, h: u32) -> Result<String, String> {
+    use crate::engine::{capture, geometry};
+    unsafe {
+        SetWindowDisplayAffinity(HWND(hwnd as *mut _), WDA_EXCLUDEFROMCAPTURE)
+            .map_err(e("SetWindowDisplayAffinity"))?;
+    }
+    let outputs = capture::list_outputs()?;
+    let rects: Vec<_> = outputs.iter().map(|o| o.rect).collect();
+    let idx = geometry::pick_output(&rects, x + w as i32 / 2, y + h as i32 / 2)
+        .ok_or("no outputs")?;
+    let mut ch = capture::Channel::new(outputs[idx])?;
+    let win = geometry::Rect::new(x, y, x + w as i32, y + h as i32);
+    let region =
+        geometry::crop_region(win, 24, ch.output_rect).ok_or("window outside output")?;
+    ch.set_region(region)?;
+
+    let mut dumped = 0u32;
+    let mut polls = 0u32;
+    while dumped < 3 && polls < 200 {
+        polls += 1;
+        match ch.poll(100, false) {
+            capture::Poll::Updated => {
+                let (rw, rh, bytes) = ch.readback()?;
+                let path = crate::window::appdata_dir().join(format!("spike-cap-{dumped}.png"));
+                write_png_bgra(&path, rw, rh, &bytes)?;
+                dumped += 1;
+            }
+            capture::Poll::NoChange => {}
+            capture::Poll::Lost(err) => return Err(format!("channel lost: {err}")),
+        }
+    }
+    Ok(format!("dumped {dumped} region frames in {polls} polls"))
 }
 
 /// 读 staging 纹理上分散的 4 个探针点（每点取 BGR 之和），判断是否全零帧。
