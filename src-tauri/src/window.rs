@@ -82,9 +82,11 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     let win = app.get_webview_window("main").expect("main window missing");
 
     let cfg: Value = serde_json::from_str(&get_config()).unwrap_or(Value::Null);
-    // 默认关：窗口级亚克力涂满整个矩形窗口，CSS 圆角裁不掉四角，会露出灰框。
-    // 玻璃感由 L2 壁纸折射层提供；想要额外的实时模糊可在配置里手动打开。
-    let acrylic = cfg.get("acrylic").and_then(Value::as_bool).unwrap_or(false);
+    // acrylic=true（默认）= 实时模式：DWM 亚克力实时模糊窗口后面的真实内容，
+    //   四角用 DWM 原生圆角裁（这是唯一能裁掉亚克力材质的办法，CSS 裁不到它），
+    //   前端把圆角同步成 8px 并停用壁纸折射层。
+    // acrylic=false = 壁纸折射模式：窗口全透明，20px 药丸圆角，玻璃只折射壁纸。
+    let acrylic = cfg.get("acrylic").and_then(Value::as_bool).unwrap_or(true);
     let on_top = cfg
         .get("alwaysOnTop")
         .and_then(Value::as_bool)
@@ -93,10 +95,12 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
 
     if acrylic {
         // 失败（旧系统/远程桌面等）只降级为纯透明，不报错弹窗
-        if let Err(e) = window_vibrancy::apply_acrylic(&win, Some((255, 255, 255, 10))) {
+        if let Err(e) = window_vibrancy::apply_acrylic(&win, Some((255, 255, 255, 5))) {
             eprintln!("acrylic unavailable, transparent fallback: {e}");
         }
     }
+    // 两种模式都裁：8px 的 DWM 圆角是 20px CSS 圆角的超集，壁纸模式下不碰可见内容
+    dwm_round_corners(&win);
 
     match load_state() {
         Some(st) if monitor_contains(&win, st.x, st.y) => {
@@ -109,6 +113,28 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     crate::wallpaper::start_watcher(app.handle().clone());
     build_tray(app.handle(), on_top)?;
     Ok(())
+}
+
+/// Win11 原生圆角 + 去掉 DWM 描边。DWM 在合成层裁整个窗口面（含亚克力材质），
+/// 半径固定 ~8px（随 DPI 缩放），前端 CSS 圆角必须与之一致。
+fn dwm_round_corners(win: &WebviewWindow) {
+    #[link(name = "dwmapi")]
+    extern "system" {
+        fn DwmSetWindowAttribute(
+            hwnd: isize,
+            attr: u32,
+            val: *const std::ffi::c_void,
+            size: u32,
+        ) -> i32;
+    }
+    let Ok(hwnd) = win.hwnd() else { return };
+    let hwnd = hwnd.0 as isize;
+    unsafe {
+        let round: u32 = 2; // DWMWA_WINDOW_CORNER_PREFERENCE(33) = DWMWCP_ROUND
+        DwmSetWindowAttribute(hwnd, 33, &round as *const u32 as _, 4);
+        let none: u32 = 0xFFFF_FFFE; // DWMWA_BORDER_COLOR(34) = DWMWA_COLOR_NONE
+        DwmSetWindowAttribute(hwnd, 34, &none as *const u32 as _, 4);
+    }
 }
 
 fn build_tray(app: &AppHandle, initial_on_top: bool) -> tauri::Result<()> {

@@ -11,12 +11,21 @@ let lastGood = null; // 最后一次成功的 {json, at}
 let timer = null;
 let backoffMs = 0; // 0 = 正常节奏；失败后 5s→30s
 
+/** acrylic!=false = 实时模式：DWM 亚克力模糊真实内容；false = 壁纸折射模式。 */
+function liveMode() {
+  return config?.acrylic !== false;
+}
+
 async function loadConfig() {
   config = JSON.parse(await invoke("get_config"));
   const g = config.glass ?? {};
   const root = document.documentElement.style;
   if (g.alpha != null) root.setProperty("--alpha", g.alpha);
-  if (g.radiusCollapsed != null) root.setProperty("--radius-collapsed", g.radiusCollapsed + "px");
+  // 实时模式下 DWM 只能裁 ~8px 圆角，CSS 必须一致，否则四角又露出材质
+  root.setProperty(
+    "--radius-collapsed",
+    liveMode() ? "8px" : (g.radiusCollapsed ?? 20) + "px",
+  );
   if (g.radiusCard != null) root.setProperty("--radius-card", g.radiusCard + "px");
 }
 
@@ -116,15 +125,16 @@ appWindow.onMoved(({ payload }) => {
 (async () => {
   await loadConfig();
   render(true); // 先画"加载中"
-  // 玻璃层失败只降级为素壳，不挡数据
-  initGlass(config).catch((e) => console.error("glass init:", e));
+  // 壁纸折射层只在非实时模式启用；实时模式的玻璃由 OS 亚克力提供。
+  // 失败只降级为素壳，不挡数据。
+  if (!liveMode()) initGlass(config).catch((e) => console.error("glass init:", e));
   await listen("manual-refresh", () => {
     // 托盘刷新 = 配置热载 + 重读壁纸 + 立即拉数
     loadConfig().then(tick);
-    reloadWallpaper().catch(() => {});
+    if (!liveMode()) reloadWallpaper().catch(() => {});
   });
   await listen("wallpaper-changed", () => {
-    reloadWallpaper().catch(() => {});
+    if (!liveMode()) reloadWallpaper().catch(() => {});
   });
   tick();
 })();
