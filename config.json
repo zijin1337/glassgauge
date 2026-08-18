@@ -4,6 +4,7 @@
   "refreshSeconds": 60,
   "alwaysOnTop": true,
   "mode": "refract",
+  "expand": "always",
   "accent": "auto",
   "wallpaperOffset": [0, 0],
   "glass": {
