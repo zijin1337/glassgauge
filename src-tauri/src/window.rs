@@ -128,6 +128,13 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
         .unwrap_or(true);
     let _ = win.set_always_on_top(on_top);
 
+    // 开机自启（HKCU Run 键，免管理员）：每次启动按当前 exe 路径刷新，挪位置自动跟
+    let autostart = cfg
+        .get("autostart")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    sync_autostart(autostart);
+
     // DWM 圆角只在 live 模式开（裁亚克力四角必需）；refract/wallpaper 显式关——
     // DWM 的 8px 弧带自己的描边/AA，会在 20px 玻璃弧外画出一圈白边。
     dwm_round_corners(&win, mode == "live");
@@ -194,6 +201,24 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     crate::wallpaper::start_watcher(app.handle().clone());
     build_tray(app.handle(), on_top, mode == "refract" && !spiking)?;
     Ok(())
+}
+
+/// autostart 配置同步到 HKCU\...\Run："glassgauge" = 当前 exe 路径；false 删键。
+fn sync_autostart(enable: bool) {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    let Ok((key, _)) = RegKey::predef(HKEY_CURRENT_USER)
+        .create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+    else {
+        return;
+    };
+    if enable {
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = key.set_value("glassgauge", &format!("\"{}\"", exe.display()));
+        }
+    } else {
+        let _ = key.delete_value("glassgauge");
+    }
 }
 
 /// 前端启动时查询生效模式（之后靠 glass-mode 事件跟进）。

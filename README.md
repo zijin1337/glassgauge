@@ -46,6 +46,7 @@ node --test ui/tests/*.test.js       # JS 单测（派生计算/裁剪映射/位
 {
   "mode": "refract",          // refract | live | wallpaper
   "expand": "always",         // always 常驻展开 | hover 悬停展开
+  "autostart": true,          // 开机自启（HKCU Run 键，随 exe 位置自动更新）
   "planLabel": "MAX",         // 徽章文字
   "validUntil": "2027-08-11", // 套餐到期（展示用）
   "refreshSeconds": 60,
@@ -70,6 +71,10 @@ node --test ui/tests/*.test.js       # JS 单测（派生计算/裁剪映射/位
 调试构建带验证入口：环境变量 `GG_SPIKE=b|a|cap|pipe`（层序/捕获剔除/抓取
 通道/整条管线自检），`GG_DUMP_ONCE=1`（启动 2.5s 后自动导出玻璃帧 PNG），
 托盘"导出玻璃帧"。
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。
 
 ## 已知边界
 

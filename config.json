@@ -5,6 +5,7 @@
   "alwaysOnTop": true,
   "mode": "refract",
   "expand": "always",
+  "autostart": true,
   "accent": "auto",
   "wallpaperOffset": [0, 0],
   "glass": {
