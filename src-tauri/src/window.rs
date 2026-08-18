@@ -110,6 +110,19 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     }
     let _ = win.show();
 
+    // Phase 0 技术验证入口（GG_SPIKE=b|a），验证完删除
+    if let Ok(which) = std::env::var("GG_SPIKE") {
+        let hwnd = win.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+        let pos = win
+            .outer_position()
+            .unwrap_or(tauri::PhysicalPosition { x: 0, y: 0 });
+        let size = win.outer_size().unwrap_or(tauri::PhysicalSize {
+            width: 244,
+            height: 62,
+        });
+        crate::engine::spike::run(&which, hwnd, size.width, size.height, pos.x, pos.y);
+    }
+
     crate::wallpaper::start_watcher(app.handle().clone());
     build_tray(app.handle(), on_top)?;
     Ok(())

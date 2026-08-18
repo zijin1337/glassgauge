@@ -1156,6 +1156,7 @@ dependencies = [
  "tauri-build",
  "tokio",
  "window-vibrancy 0.5.3",
+ "windows",
  "winreg 0.52.0",
 ]
 
