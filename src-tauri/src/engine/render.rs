@@ -8,7 +8,8 @@ use windows::core::{IUnknown, Interface};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_BORDER_MODE_HARD, D2D1_COLOR_F,
-    D2D1_COMPOSITE_MODE_SOURCE_OVER, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_U,
+    D2D1_COMPOSITE_MODE_SOURCE_OVER, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT, D2D_RECT_F,
+    D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Bitmap1, ID2D1Device, ID2D1DeviceContext, ID2D1Effect,
@@ -20,7 +21,9 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_DISPLACEMENTMAP_PROP_X_CHANNEL_SELECT, D2D1_DISPLACEMENTMAP_PROP_Y_CHANNEL_SELECT,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_GAUSSIANBLUR_PROP_BORDER_MODE,
     D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, D2D1_INTERPOLATION_MODE_LINEAR,
-    D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_LAYER_PARAMETERS1, D2D1_LAYER_OPTIONS1_NONE,
+    D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_BUFFER_PRECISION_8BPC_UNORM,
+    D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT, D2D1_COLOR_SPACE_SRGB, D2D1_EXTEND_MODE_CLAMP,
+    D2D1_LAYER_PARAMETERS1, D2D1_LAYER_OPTIONS1_NONE, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES,
     D2D1_MAP_OPTIONS_READ, D2D1_PROPERTY_TYPE_ENUM, D2D1_PROPERTY_TYPE_FLOAT, D2D1_ROUNDED_RECT,
     D2D1_SATURATION_PROP_SATURATION,
 };
@@ -63,6 +66,8 @@ pub struct Renderer {
     src_bitmap: Option<(u64, ID2D1Bitmap1)>, // (抓取纹理代数, D2D 包装)
     win_w: u32,
     win_h: u32,
+    /// 原生棱边描边宽（物理 px）。描边中心在裁剪弧上，外半被裁掉 → 内半贴弧发光
+    rim_width: f32,
     params: GlassParams,
 }
 
@@ -119,6 +124,7 @@ impl Renderer {
                 src_bitmap: None,
                 win_w: 0,
                 win_h: 0,
+                rim_width: 2.2,
                 params: GlassParams {
                     sigma: 7.0,
                     displacement: 24.0,
@@ -208,6 +214,8 @@ impl Renderer {
                 })
                 .map_err(e("rounded geometry"))?;
             self.mask = Some(rounded.cast().map_err(e("geometry cast"))?);
+            // margin/24 ≈ dpr：棱边可见半宽 ≈ 1.1 个 CSS 像素
+            self.rim_width = 2.2 * (params.margin as f32 / 24.0);
             // 源位图对应的纹理没变，但特效输入图可能因重建被清 → 让 render 重新绑
             self.src_bitmap = None;
             Ok(())
@@ -364,6 +372,48 @@ impl Renderer {
                 D2D1_INTERPOLATION_MODE_LINEAR,
                 D2D1_COMPOSITE_MODE_SOURCE_OVER,
             );
+            // 玻璃棱边：渐变描边画在裁剪弧本体上，与轮廓数学重合（顶亮/中淡/底微亮）。
+            // 描边中心在弧上、外半被层裁掉，留下贴边的内发光。
+            let stops = [
+                D2D1_GRADIENT_STOP {
+                    position: 0.0,
+                    color: D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 0.85 },
+                },
+                D2D1_GRADIENT_STOP {
+                    position: 0.5,
+                    color: D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 0.16 },
+                },
+                D2D1_GRADIENT_STOP {
+                    position: 1.0,
+                    color: D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 0.3 },
+                },
+            ];
+            let coll = dc
+                .CreateGradientStopCollection(
+                    &stops,
+                    D2D1_COLOR_SPACE_SRGB,
+                    D2D1_COLOR_SPACE_SRGB,
+                    D2D1_BUFFER_PRECISION_8BPC_UNORM,
+                    D2D1_EXTEND_MODE_CLAMP,
+                    D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT,
+                )
+                .map_err(e("gradient stops"))?;
+            let brush = dc
+                .CreateLinearGradientBrush(
+                    &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+                        startPoint: Vector2 { X: 0.0, Y: 0.0 },
+                        endPoint: Vector2 {
+                            X: 0.0,
+                            Y: self.win_h as f32,
+                        },
+                    },
+                    None,
+                    &coll,
+                )
+                .map_err(e("rim brush"))?;
+            dc.SetTransform(&Matrix3x2::translation(ox, oy));
+            dc.DrawGeometry(mask, &brush, self.rim_width, None);
+            dc.SetTransform(&Matrix3x2::identity());
             dc.PopLayer();
             // ManuallyDrop 里的接口克隆需要手动放掉
             let mut p = params;

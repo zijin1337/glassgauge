@@ -54,21 +54,19 @@ html, body {
   padding: 10px 12px;
   border-radius: calc(var(--radius-collapsed) - 1px);
   background: rgba(255, 255, 255, var(--alpha));
-  border: 1px solid var(--shell-border);
-  box-shadow:
-    inset 0 1.5px 1px -0.5px rgba(255, 255, 255, 0.65),
-    inset 1px 0 1px -0.5px rgba(255, 255, 255, 0.3),
-    inset -1px -1px 1px -0.5px rgba(255, 255, 255, 0.22),
-    inset 0 -10px 18px -14px rgba(0, 0, 0, 0.28);
+  /* 描边/受光棱由引擎原生画在裁剪弧上（与轮廓数学重合）；
+     CSS 只留内部厚度阴影，任何白色都不允许贴近轮廓 */
+  border: none;
+  box-shadow: inset 0 -10px 18px -14px rgba(0, 0, 0, 0.22);
 }
 .shell::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: 2px;
   border-radius: inherit;
   background: linear-gradient(115deg,
-    rgba(255, 255, 255, 0.22) 0%,
-    rgba(255, 255, 255, 0.05) 34%,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.04) 34%,
     transparent 55%);
   pointer-events: none;
 }

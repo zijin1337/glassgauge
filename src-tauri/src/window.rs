@@ -128,9 +128,9 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
         .unwrap_or(true);
     let _ = win.set_always_on_top(on_top);
 
-    // 所有模式都裁 DWM 原生圆角：live 模式靠它裁亚克力四角；
-    // refract/wallpaper 的 20px CSS/原生圆角是 8px 的子集，不受影响。
-    dwm_round_corners(&win);
+    // DWM 圆角只在 live 模式开（裁亚克力四角必需）；refract/wallpaper 显式关——
+    // DWM 的 8px 弧带自己的描边/AA，会在 20px 玻璃弧外画出一圈白边。
+    dwm_round_corners(&win, mode == "live");
 
     let spiking = std::env::var("GG_SPIKE").is_ok();
     match mode.as_str() {
@@ -202,9 +202,10 @@ pub fn get_glass_mode(state: tauri::State<crate::engine::GlassMode>) -> String {
     state.0.lock().unwrap().clone()
 }
 
-/// Win11 原生圆角 + 去掉 DWM 描边。DWM 在合成层裁整个窗口面（含亚克力材质），
-/// 半径固定 ~8px（随 DPI 缩放），前端 CSS 圆角必须与之一致。
-fn dwm_round_corners(win: &WebviewWindow) {
+/// DWM 原生圆角开关 + 去掉 DWM 描边。round=true：合成层把整个窗口面
+/// （含亚克力材质）裁成 ~8px 圆角（live 模式必需，CSS 圆角须与之一致）；
+/// round=false：显式不裁（refract/wallpaper 自己画轮廓）。两种都关 DWM 描边。
+fn dwm_round_corners(win: &WebviewWindow, round: bool) {
     #[link(name = "dwmapi")]
     extern "system" {
         fn DwmSetWindowAttribute(
@@ -217,8 +218,9 @@ fn dwm_round_corners(win: &WebviewWindow) {
     let Ok(hwnd) = win.hwnd() else { return };
     let hwnd = hwnd.0 as isize;
     unsafe {
-        let round: u32 = 2; // DWMWA_WINDOW_CORNER_PREFERENCE(33) = DWMWCP_ROUND
-        DwmSetWindowAttribute(hwnd, 33, &round as *const u32 as _, 4);
+        // DWMWA_WINDOW_CORNER_PREFERENCE(33): DWMWCP_ROUND=2 / DWMWCP_DONOTROUND=1
+        let pref: u32 = if round { 2 } else { 1 };
+        DwmSetWindowAttribute(hwnd, 33, &pref as *const u32 as _, 4);
         let none: u32 = 0xFFFF_FFFE; // DWMWA_BORDER_COLOR(34) = DWMWA_COLOR_NONE
         DwmSetWindowAttribute(hwnd, 34, &none as *const u32 as _, 4);
     }
