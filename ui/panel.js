@@ -10,6 +10,8 @@ let config = null;
 let lastGood = null; // 最后一次成功的 {json, at}
 let timer = null;
 let backoffMs = 0; // 0 = 正常节奏；失败后 5s→30s
+let lastConnected = true;
+let expanded = false; // 悬停展开态（spec 形态 C）
 
 // 生效玻璃模式（spec §4）：refract=原生折射 | wallpaper=壁纸折射兜底 | live=DWM 亚克力。
 // 启动时问 get_glass_mode，之后由 glass-mode 事件驱动（引擎降级/恢复）。
@@ -44,6 +46,7 @@ async function tick() {
   } catch {
     /* relay-not-found 或网络失败 → 降级渲染 */
   }
+  lastConnected = ok;
   render(ok);
   if (ok) {
     backoffMs = 0;
@@ -70,6 +73,11 @@ function render(connected) {
     return;
   }
   const all = deriveAll(lastGood.json, Date.now() / 1000);
+  if (expanded) {
+    app.innerHTML = expandedHtml(all, connected);
+    markDragRegion();
+    return;
+  }
   const t = all.tight;
   const abnormal = all.status.kind !== "ok";
   app.innerHTML = shellHtml({
@@ -86,6 +94,72 @@ function render(connected) {
   });
   markDragRegion();
 }
+
+/* ---------- 展开态（spec 形态 C：悬停 304 宽三窗口卡） ---------- */
+function expandedHtml(all, connected) {
+  const dot = connected ? all.status.dot : "grey";
+  const dotCls = dot === "accent" ? "dot" : `dot ${dot}`;
+  const cards = all.windows
+    .map(
+      (w) => `
+      <div class="card">
+        <div class="r1">
+          <span class="win">${w.label}</span>
+          <span class="rem">剩余 ${w.remPct}%</span>
+          <span class="pct2">${w.usedPct}%</span>
+        </div>
+        <div class="bar">
+          <div class="fill" style="width:${w.usedPct}%"></div>
+          <div class="tick" style="left:${w.pacePct}%"></div>
+        </div>
+        <div class="l3"><span>${w.resetText}</span><span class="d">${w.deltaText}</span></div>
+      </div>`,
+    )
+    .join("");
+  return `
+    <div class="shell expanded${connected ? "" : " stale"}">
+      <div class="head">
+        <span class="${dotCls}"></span>
+        <span class="title">Mirasim 用量</span>
+        <span class="badge">${config?.planLabel ?? "MAX"}</span>
+        <span class="exp">套餐到期 ${config?.validUntil ?? "–"}</span>
+      </div>
+      ${cards}
+    </div>`;
+}
+
+const COLLAPSED_SIZE = [244, 62];
+const EXPANDED_W = 304;
+
+async function setExpanded(v) {
+  if (expanded === v) return;
+  if (v && !lastGood) return; // 没数据没什么可展开的
+  expanded = v;
+  render(lastConnected);
+  const { LogicalSize } = window.__TAURI__.dpi;
+  if (v) {
+    // 展开壳定宽 302，先渲染后量自然高，窗口跟内容走
+    const shell = document.querySelector(".shell.expanded");
+    const h = (shell?.offsetHeight ?? 300) + 2;
+    await appWindow.setSize(new LogicalSize(EXPANDED_W, h));
+  } else {
+    await appWindow.setSize(new LogicalSize(COLLAPSED_SIZE[0], COLLAPSED_SIZE[1]));
+  }
+  // 壁纸兜底模式的滤镜/裁剪是按窗口尺寸建的，尺寸变了要重建
+  if (glassMode === "wallpaper") {
+    setTimeout(() => initGlass(config).catch(() => {}), 120);
+  }
+}
+
+let hoverTimer = null;
+document.addEventListener("pointerenter", () => {
+  clearTimeout(hoverTimer);
+  hoverTimer = setTimeout(() => setExpanded(true), 120);
+});
+document.addEventListener("pointerleave", () => {
+  clearTimeout(hoverTimer);
+  hoverTimer = setTimeout(() => setExpanded(false), 280);
+});
 
 function shellHtml({ dot, who, pct, fill, tickAt, stale }) {
   const dotCls = dot === "accent" ? "dot" : `dot ${dot}`;
