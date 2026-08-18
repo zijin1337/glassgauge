@@ -1,0 +1,18 @@
+{
+  "planLabel": "MAX",
+  "validUntil": "2027-08-11",
+  "refreshSeconds": 60,
+  "alwaysOnTop": true,
+  "acrylic": true,
+  "accent": "auto",
+  "wallpaperOffset": [0, 0],
+  "glass": {
+    "alpha": 0.16,
+    "blur": 14,
+    "displacement": 24,
+    "band": 16,
+    "radiusCollapsed": 20,
+    "radiusCard": 14,
+    "saturate": 1.12
+  }
+}
