@@ -48,6 +48,10 @@ async function tick() {
   }
   lastConnected = ok;
   render(ok);
+  // expand:"always"（默认）= 常驻展开：拿到首批数据就展开定形
+  if (ok && (config?.expand ?? "always") === "always" && !expanded) {
+    setExpanded(true);
+  }
   if (ok) {
     backoffMs = 0;
     timer = setTimeout(tick, (config?.refreshSeconds ?? 60) * 1000);
@@ -151,12 +155,15 @@ async function setExpanded(v) {
   }
 }
 
+// expand:"hover" 才启用悬停展开/收起；"always" 常驻展开不理会指针
 let hoverTimer = null;
 document.addEventListener("pointerenter", () => {
+  if ((config?.expand ?? "always") === "always") return;
   clearTimeout(hoverTimer);
   hoverTimer = setTimeout(() => setExpanded(true), 120);
 });
 document.addEventListener("pointerleave", () => {
+  if ((config?.expand ?? "always") === "always") return;
   clearTimeout(hoverTimer);
   hoverTimer = setTimeout(() => setExpanded(false), 280);
 });

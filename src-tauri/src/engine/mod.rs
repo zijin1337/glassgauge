@@ -81,6 +81,10 @@ pub enum Cmd {
     Refresh,
     /// debug：把当前玻璃帧落 %APPDATA%/glassgauge/glass-dump.png
     Dump,
+    /// 截图模式：停止抓取渲染、退回壁纸兜底（调用方随后解除捕获剔除）
+    Pause,
+    /// 退出截图模式：重建抓取渲染（调用方须先恢复捕获剔除）
+    Resume,
     Stop,
 }
 
@@ -101,14 +105,20 @@ fn set_mode(app: &AppHandle, mode: &str) {
     let _ = app.emit("glass-mode", mode.to_string());
 }
 
-/// 挂件对屏幕捕获隐形（spec §8：refract 模式进程期常开）。
+/// 挂件对屏幕捕获隐形（spec §8：refract 渲染期间必须）。
 pub fn exclude_from_capture(hwnd: isize) {
+    set_capture_visibility(hwnd, false);
+}
+
+/// visible=true：挂件可被截图（引擎必须已暂停，否则玻璃会拍到自己）。
+pub fn set_capture_visibility(hwnd: isize, visible: bool) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
     };
     unsafe {
-        let _ = SetWindowDisplayAffinity(HWND(hwnd as *mut _), WDA_EXCLUDEFROMCAPTURE);
+        let affinity = if visible { WDA_NONE } else { WDA_EXCLUDEFROMCAPTURE };
+        let _ = SetWindowDisplayAffinity(HWND(hwnd as *mut _), affinity);
     }
 }
 
@@ -132,12 +142,29 @@ fn run(app: AppHandle, hwnd: isize, cfg: GlassCfg, rx: Receiver<Cmd>) {
     }
     let mut geo: Option<(Rect, f64)> = None;
     let mut backoff = Duration::from_millis(500);
+    let mut paused = false;
 
     'outer: loop {
+        // 截图模式：挂起到 Resume，期间只消化几何更新
+        while paused {
+            match rx.recv() {
+                Ok(Cmd::Resume) => {
+                    paused = false;
+                    backoff = Duration::from_millis(500);
+                }
+                Ok(Cmd::Geometry { win, dpr }) => geo = Some((win, dpr)),
+                Ok(Cmd::Stop) | Err(_) => return,
+                Ok(_) => {}
+            }
+        }
         // 没有几何就干等命令
         while geo.is_none() {
             match rx.recv() {
                 Ok(Cmd::Geometry { win, dpr }) => geo = Some((win, dpr)),
+                Ok(Cmd::Pause) => {
+                    paused = true;
+                    continue 'outer;
+                }
                 Ok(Cmd::Stop) | Err(_) => return,
                 Ok(_) => {}
             }
@@ -156,6 +183,10 @@ fn run(app: AppHandle, hwnd: isize, cfg: GlassCfg, rx: Receiver<Cmd>) {
                     }
                     match rx.recv_timeout(deadline - now) {
                         Ok(Cmd::Geometry { win, dpr }) => geo = Some((win, dpr)),
+                        Ok(Cmd::Pause) => {
+                            paused = true;
+                            continue 'outer;
+                        }
                         Ok(Cmd::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                         Ok(_) => {}
                         Err(RecvTimeoutError::Timeout) => break,
@@ -197,6 +228,14 @@ fn run(app: AppHandle, hwnd: isize, cfg: GlassCfg, rx: Receiver<Cmd>) {
                             }
                             Ok(Cmd::Refresh) => force = true,
                             Ok(Cmd::Dump) => dump(&mut stack),
+                            Ok(Cmd::Pause) => {
+                                // 截图模式：卸掉抓取/渲染栈，前端切壁纸兜底
+                                set_mode(&app, "wallpaper");
+                                drop(stack);
+                                paused = true;
+                                continue 'outer;
+                            }
+                            Ok(Cmd::Resume) => {} // 已在运行
                             Ok(Cmd::Stop) => return,
                             Err(TryRecvError::Empty) => break,
                             Err(TryRecvError::Disconnected) => return,

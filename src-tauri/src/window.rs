@@ -192,7 +192,7 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     }
 
     crate::wallpaper::start_watcher(app.handle().clone());
-    build_tray(app.handle(), on_top)?;
+    build_tray(app.handle(), on_top, mode == "refract" && !spiking)?;
     Ok(())
 }
 
@@ -226,22 +226,42 @@ fn dwm_round_corners(win: &WebviewWindow, round: bool) {
     }
 }
 
-fn build_tray(app: &AppHandle, initial_on_top: bool) -> tauri::Result<()> {
+fn build_tray(app: &AppHandle, initial_on_top: bool, has_engine: bool) -> tauri::Result<()> {
     let refresh = MenuItem::with_id(app, "refresh", "立即刷新", true, None::<&str>)?;
     let pin = CheckMenuItem::with_id(app, "pin", "置顶", true, initial_on_top, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    // 实时玻璃与可截图物理互斥（玻璃会拍到自己）：勾上=引擎暂停、壁纸兜底、可截图
+    let shot = if has_engine {
+        Some(CheckMenuItem::with_id(
+            app,
+            "shot",
+            "截图模式（玻璃暂用壁纸）",
+            true,
+            false,
+            None::<&str>,
+        )?)
+    } else {
+        None
+    };
     // 截图照不到挂件（refract 剔除），debug 构建给一条落盘出口做验收
     let dump = if cfg!(debug_assertions) {
         Some(MenuItem::with_id(app, "dump", "导出玻璃帧", true, None::<&str>)?)
     } else {
         None
     };
-    let menu = match &dump {
-        Some(d) => Menu::with_items(app, &[&refresh, d, &pin, &quit])?,
-        None => Menu::with_items(app, &[&refresh, &pin, &quit])?,
-    };
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&refresh];
+    if let Some(s) = &shot {
+        items.push(s);
+    }
+    if let Some(d) = &dump {
+        items.push(d);
+    }
+    items.push(&pin);
+    items.push(&quit);
+    let menu = Menu::with_items(app, &items)?;
 
     let pinned = Arc::new(AtomicBool::new(initial_on_top));
+    let shot_on = Arc::new(AtomicBool::new(false));
 
     TrayIconBuilder::with_id("main-tray")
         .icon(app.default_window_icon().expect("bundled icon").clone())
@@ -258,6 +278,22 @@ fn build_tray(app: &AppHandle, initial_on_top: bool) -> tauri::Result<()> {
             "dump" => {
                 if let Some(h) = app.try_state::<crate::engine::EngineHandle>() {
                     let _ = h.0.lock().unwrap().send(crate::engine::Cmd::Dump);
+                }
+            }
+            "shot" => {
+                let Some(w) = app.get_webview_window("main") else { return };
+                let Ok(hwnd) = w.hwnd().map(|h| h.0 as isize) else { return };
+                let Some(h) = app.try_state::<crate::engine::EngineHandle>() else { return };
+                let now_on = !shot_on.load(Ordering::Relaxed);
+                shot_on.store(now_on, Ordering::Relaxed);
+                if now_on {
+                    // 先停引擎再解除剔除，避免玻璃拍到自己的过渡帧
+                    let _ = h.0.lock().unwrap().send(crate::engine::Cmd::Pause);
+                    std::thread::sleep(std::time::Duration::from_millis(180));
+                    crate::engine::set_capture_visibility(hwnd, true);
+                } else {
+                    crate::engine::set_capture_visibility(hwnd, false);
+                    let _ = h.0.lock().unwrap().send(crate::engine::Cmd::Resume);
                 }
             }
             "pin" => {
