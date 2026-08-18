@@ -2,7 +2,7 @@
 * { box-sizing: border-box; user-select: none; }
 
 :root {
-  --alpha: 0.055;
+  --alpha: 0.03;
   --ink: #171a22;
   --accent: #3b82d8;
   --shell-border: rgba(255, 255, 255, 0.26);
