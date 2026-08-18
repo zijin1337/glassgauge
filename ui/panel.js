@@ -1,5 +1,6 @@
 // 渲染与数据环。派生计算全部来自 derive.js；本文件只做取数节奏和 DOM。
 import { deriveAll } from "./derive.js";
+import { initGlass, recropTo, reloadWallpaper } from "./glass.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -104,6 +105,7 @@ function markDragRegion() {
 
 let moveTimer = null;
 appWindow.onMoved(({ payload }) => {
+  recropTo(payload.x, payload.y); // 玻璃跟手：拖动中每次事件都重摆背景
   clearTimeout(moveTimer);
   moveTimer = setTimeout(() => {
     invoke("save_state", { x: payload.x, y: payload.y });
@@ -114,8 +116,15 @@ appWindow.onMoved(({ payload }) => {
 (async () => {
   await loadConfig();
   render(true); // 先画"加载中"
+  // 玻璃层失败只降级为素壳，不挡数据
+  initGlass(config).catch((e) => console.error("glass init:", e));
   await listen("manual-refresh", () => {
-    loadConfig().then(tick); // 托盘刷新 = 配置热载 + 立即拉数
+    // 托盘刷新 = 配置热载 + 重读壁纸 + 立即拉数
+    loadConfig().then(tick);
+    reloadWallpaper().catch(() => {});
+  });
+  await listen("wallpaper-changed", () => {
+    reloadWallpaper().catch(() => {});
   });
   tick();
 })();

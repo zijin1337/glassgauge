@@ -6,8 +6,8 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- L2 壁纸折射层（Phase 2 填充） -->
-  <div id="wallpaper-layer"></div>
+  <!-- L2 壁纸折射层：外层裁圆角，内层被 glass.js 填壁纸 + 位移滤镜 -->
+  <div id="wallpaper-layer"><div id="wallpaper-glass"></div></div>
   <!-- 内容 -->
   <div id="app"></div>
   <svg id="filter-defs" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0"></svg>

@@ -2,6 +2,7 @@
 
 mod discovery;
 mod relay;
+mod wallpaper;
 mod window;
 
 fn main() {
@@ -11,6 +12,7 @@ fn main() {
             window::get_config,
             window::save_state,
             relay::fetch_limits,
+            wallpaper::get_wallpaper,
         ])
         .setup(|app| {
             window::setup(app)?;

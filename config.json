@@ -3,7 +3,7 @@
   "validUntil": "2027-08-11",
   "refreshSeconds": 60,
   "alwaysOnTop": true,
-  "acrylic": true,
+  "acrylic": false,
   "accent": "auto",
   "wallpaperOffset": [0, 0],
   "glass": {
