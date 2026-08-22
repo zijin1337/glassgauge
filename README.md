@@ -38,6 +38,14 @@ cargo test                           # Rust 单测（几何/位移图/发现协�
 node --test ui/tests/*.test.js       # JS 单测（派生计算/裁剪映射/位移场）
 ```
 
+## 网页仪表盘
+
+挂件内建 **http://localhost:8642**（`webPort` 可改）：大数字显示各窗口**剩余
+credits**（1 credit = $0.04 表列价，实测 1 限额单位 = 1 美分）、进度条、匀速线、
+重置倒计时，30 秒自刷新。同时每次刷新都会探测 mirasim 尚未上线的
+`/v1/credits` 端点，一旦其返回 200 页面自动改显官方账户真实余额。
+只绑回环地址，随挂件开机自启。
+
 ## 配置
 
 `%APPDATA%\glassgauge\config.json`（首次运行自动生成），托盘"立即刷新"热载：
@@ -47,6 +55,7 @@ node --test ui/tests/*.test.js       # JS 单测（派生计算/裁剪映射/位
   "mode": "refract",          // refract | live | wallpaper
   "expand": "always",         // always 常驻展开 | hover 悬停展开
   "autostart": true,          // 开机自启（HKCU Run 键，随 exe 位置自动更新）
+  "webPort": 8642,            // 网页仪表盘端口（http://localhost:8642）
   "accent": "auto",           // 主色：auto 壁纸取色（绕开绿）| blue | amber | ink | "#hex"
   "ink": "#000000",           // 可选：钉死字色（省略 = 随壁纸明暗自动黑/白字）
   "planLabel": "MAX",         // 徽章文字

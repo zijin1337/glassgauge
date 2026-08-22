@@ -23,6 +23,11 @@ pub struct LimitsResult {
 /// 返回 Err 让前端进入"未连接"降级态。
 #[tauri::command]
 pub async fn fetch_limits(state: State<'_, RelayState>) -> Result<LimitsResult, String> {
+    fetch_limits_core(state.inner()).await
+}
+
+/// 同一逻辑的非命令入口（webui 等后台消费方用）。
+pub async fn fetch_limits_core(state: &RelayState) -> Result<LimitsResult, String> {
     let client = discovery::probe_client();
 
     let cached = *state.0.lock().unwrap();

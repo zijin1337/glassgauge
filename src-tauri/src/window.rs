@@ -199,6 +199,13 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
     }
 
     crate::wallpaper::start_watcher(app.handle().clone());
+    // 网页仪表盘（剩余 credits）：http://127.0.0.1:{webPort}/
+    let web_port = cfg
+        .get("webPort")
+        .and_then(Value::as_u64)
+        .and_then(|p| u16::try_from(p).ok())
+        .unwrap_or(8642);
+    crate::webui::start(app.handle().clone(), web_port);
     build_tray(app.handle(), on_top, mode == "refract" && !spiking)?;
     Ok(())
 }

@@ -4,6 +4,7 @@ mod discovery;
 mod engine;
 mod relay;
 mod wallpaper;
+mod webui;
 mod window;
 
 fn main() {

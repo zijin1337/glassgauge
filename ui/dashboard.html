@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mirasim Credits</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; padding: 40px 20px 60px;
+    font: 14px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    color: #eef1f7;
+    background: #0c0f17 radial-gradient(1200px 700px at 20% -10%, #1d2b4d 0%, transparent 60%),
+                radial-gradient(1000px 600px at 95% 10%, #3a2350 0%, transparent 55%);
+    background-blend-mode: screen;
+    display: flex; flex-direction: column; align-items: center; gap: 18px;
+  }
+  h1 { font-size: 17px; font-weight: 650; margin: 0; letter-spacing: .3px; display: flex; align-items: center; gap: 9px; }
+  h1 .dot { width: 8px; height: 8px; border-radius: 50%; background: #56d364; box-shadow: 0 0 9px #56d364; }
+  h1 .dot.bad { background: #e2504c; box-shadow: 0 0 9px #e2504c; }
+  .meta { font-size: 11px; opacity: .55; }
+  .cards { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; max-width: 980px; }
+  .card {
+    width: 340px; padding: 20px 22px 18px; border-radius: 18px;
+    background: rgba(255,255,255,.055);
+    border: 1px solid rgba(255,255,255,.13);
+    backdrop-filter: blur(18px) saturate(1.2);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 18px 44px rgba(0,0,0,.4);
+  }
+  .card h2 { margin: 0; font-size: 12.5px; font-weight: 600; opacity: .72; letter-spacing: .4px; }
+  .big { font-size: 44px; font-weight: 800; letter-spacing: -1.2px; margin: 6px 0 2px; color: #8fb8ff; }
+  .big small { font-size: 15px; font-weight: 650; letter-spacing: 0; opacity: .75; margin-left: 5px; }
+  .sub { font-size: 11.5px; opacity: .62; }
+  .bar { position: relative; height: 8px; margin: 14px 0 8px; border-radius: 99px; background: rgba(255,255,255,.13); }
+  .fill { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: linear-gradient(90deg,#5b8def,#8fb8ff); }
+  .tick { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 2px; background: rgba(255,255,255,.75); }
+  .l3 { display: flex; font-size: 11px; opacity: .6; }
+  .l3 .d { margin-left: auto; }
+  .note {
+    max-width: 700px; font-size: 11px; opacity: .5; text-align: center; line-height: 1.7;
+  }
+  .official {
+    display: none; width: 700px; max-width: 94vw; padding: 26px; border-radius: 18px; text-align: center;
+    background: rgba(120,200,140,.08); border: 1px solid rgba(120,220,150,.3); backdrop-filter: blur(18px);
+  }
+  .official .big { color: #7be495; font-size: 56px; }
+  .err { display: none; padding: 14px 22px; border-radius: 12px; background: rgba(226,80,76,.12);
+         border: 1px solid rgba(226,80,76,.4); font-size: 13px; }
+</style>
+</head>
+<body>
+  <h1><span class="dot" id="dot"></span>Mirasim Credits<span class="meta" id="endpoint"></span></h1>
+
+  <div class="official" id="official">
+    <h2>官方账户余额（/v1/credits 已上线）</h2>
+    <div class="big" id="official-num">–</div>
+    <div class="sub" id="official-raw"></div>
+  </div>
+
+  <div class="cards" id="cards"></div>
+  <div class="err" id="err"></div>
+
+  <p class="note">
+    折算口径：1 credit = $0.04（Anthropic 表列价，实测 1 单位 = 1 美分）。
+    上方数字 = 窗口剩余额度折算，非账户总余额——官方 /v1/credits 端点上线后此页自动改显真实余额。
+    数据 30 秒自动刷新，倒计时实时走动。
+  </p>
+
+<script>
+"use strict";
+// 与挂件 derive.js 同一套数学（此页独立成文，两处同改）
+const WIN_LEN = { "5h": 18000, "7d": 604800, "30d": 2592000 };
+const WIN_LABEL = { "5h": "5 小时窗口", "7d": "7 天窗口", "30d": "30 天窗口" };
+const CENTS_PER_CREDIT = 4;
+
+let last = null; // { limits, credits, endpoint, at }
+
+function resetText(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d} 天 ${h} 小时后重置`;
+  if (h > 0) return `${h} 小时 ${m} 分后重置`;
+  return `${m} 分后重置`;
+}
+
+function fmt(n) { return Math.floor(n).toLocaleString("en-US"); }
+
+function render() {
+  const cards = document.getElementById("cards");
+  const err = document.getElementById("err");
+  const dot = document.getElementById("dot");
+  if (!last || !last.limits) return;
+  err.style.display = "none";
+  dot.className = "dot";
+  document.getElementById("endpoint").textContent = "· " + (last.endpoint || "");
+
+  // 官方余额（端点上线后）
+  const off = document.getElementById("official");
+  if (last.credits && typeof last.credits === "object") {
+    off.style.display = "block";
+    const c = last.credits;
+    const val = c.remaining ?? c.balance ?? c.credits ?? null;
+    document.getElementById("official-num").textContent = val != null ? fmt(val) : "见原始数据";
+    document.getElementById("official-raw").textContent = JSON.stringify(c);
+  } else {
+    off.style.display = "none";
+  }
+
+  const now = Date.now() / 1000;
+  cards.innerHTML = (last.limits.windows || []).map((w) => {
+    const len = WIN_LEN[w.name] ?? 0;
+    const usedPct = w.budget > 0 ? (w.used / w.budget) * 100 : 0;
+    const remainCents = Math.max(0, w.budget - w.used);
+    const credits = remainCents / CENTS_PER_CREDIT;
+    const usd = remainCents / 100;
+    const remaining = Math.max(0, w.reset_at - now);
+    const pacePct = len ? Math.min(100, Math.max(0, ((len - remaining) / len) * 100)) : 0;
+    const delta = usedPct - pacePct;
+    return `
+      <div class="card">
+        <h2>${WIN_LABEL[w.name] ?? w.name} · 剩余</h2>
+        <div class="big">${fmt(credits)}<small>credits</small></div>
+        <div class="sub">≈ $${usd.toFixed(2)} 表列价 · 已用 ${usedPct.toFixed(1)}%（$${(w.used/100).toFixed(2)} / $${(w.budget/100).toFixed(0)}）</div>
+        <div class="bar"><div class="fill" style="width:${Math.min(100, usedPct).toFixed(2)}%"></div>
+          <div class="tick" style="left:${pacePct.toFixed(2)}%"></div></div>
+        <div class="l3"><span>${resetText(remaining)}</span>
+          <span class="d">匀速线 ${pacePct.toFixed(1)}% · ${delta >= 0 ? "超前" : "落后"} ${Math.abs(delta).toFixed(1)}%</span></div>
+      </div>`;
+  }).join("");
+}
+
+function showError(msg) {
+  const err = document.getElementById("err");
+  document.getElementById("dot").className = "dot bad";
+  err.textContent = "未连接 mirasim：" + msg + (last ? "（下方为最后一次数据）" : "");
+  err.style.display = "block";
+}
+
+async function refresh() {
+  try {
+    const r = await fetch("/api/limits", { cache: "no-store" });
+    const j = await r.json();
+    if (!j.ok) { showError(j.error || "unknown"); return; }
+    last = { limits: j.limits, credits: j.credits, endpoint: j.endpoint, at: Date.now() };
+    render();
+  } catch (e) {
+    showError(String(e));
+  }
+}
+
+refresh();
+setInterval(refresh, 30000);
+setInterval(render, 1000); // 倒计时/匀速线本地走动
+</script>
+</body>
+</html>

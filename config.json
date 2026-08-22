@@ -6,6 +6,7 @@
   "mode": "refract",
   "expand": "always",
   "autostart": true,
+  "webPort": 8642,
   "accent": "auto",
   "wallpaperOffset": [0, 0],
   "glass": {
