@@ -19,6 +19,19 @@
   h1 .dot { width: 8px; height: 8px; border-radius: 50%; background: #56d364; box-shadow: 0 0 9px #56d364; }
   h1 .dot.bad { background: #e2504c; box-shadow: 0 0 9px #e2504c; }
   .meta { font-size: 11px; opacity: .55; }
+  .plan {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 18px; border-radius: 99px;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.13);
+    backdrop-filter: blur(14px); font-size: 12px;
+  }
+  .plan .badge {
+    font-size: 10px; font-weight: 750; letter-spacing: .8px; padding: 2px 8px; border-radius: 6px;
+    color: #ffc861; background: rgba(255,200,97,.13); border: 1px solid rgba(255,200,97,.45);
+  }
+  .plan b { font-size: 15px; font-weight: 800; color: #8fb8ff; letter-spacing: -.3px; }
+  .plan .sep { opacity: .3; }
+  .plan .dim { opacity: .6; }
   .cards { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; max-width: 980px; }
   .card {
     width: 340px; padding: 20px 22px 18px; border-radius: 18px;
@@ -50,6 +63,13 @@
 </head>
 <body>
   <h1><span class="dot" id="dot"></span>Mirasim Credits<span class="meta" id="endpoint"></span></h1>
+
+  <div class="plan" id="plan" style="display:none">
+    <span class="badge" id="plan-label">–</span>
+    <span>套餐总量 <b id="plan-total">–</b> credits <span class="dim" id="plan-usd"></span></span>
+    <span class="sep">·</span>
+    <span class="dim" id="plan-until"></span>
+  </div>
 
   <div class="official" id="official">
     <h2>官方账户余额（/v1/credits 已上线）</h2>
@@ -84,6 +104,19 @@ function resetText(sec) {
 }
 
 function fmt(n) { return Math.floor(n).toLocaleString("en-US"); }
+
+function renderPlan(plan) {
+  if (!plan) return;
+  const el = document.getElementById("plan");
+  el.style.display = "flex";
+  document.getElementById("plan-label").textContent = plan.label ?? "–";
+  const total = plan.totalCredits;
+  document.getElementById("plan-total").textContent = total != null ? fmt(total) : "–";
+  document.getElementById("plan-usd").textContent =
+    total != null ? `(≈ $${fmt(total * CENTS_PER_CREDIT / 100)} 表列价)` : "";
+  document.getElementById("plan-until").textContent =
+    plan.validUntil ? `套餐到期 ${plan.validUntil}` : "";
+}
 
 function render() {
   const cards = document.getElementById("cards");
@@ -140,6 +173,7 @@ async function refresh() {
   try {
     const r = await fetch("/api/limits", { cache: "no-store" });
     const j = await r.json();
+    renderPlan(j.plan);
     if (!j.ok) { showError(j.error || "unknown"); return; }
     last = { limits: j.limits, credits: j.credits, endpoint: j.endpoint, at: Date.now() };
     render();

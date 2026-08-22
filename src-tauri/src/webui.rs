@@ -56,17 +56,31 @@ async fn api_limits(state: &crate::relay::RelayState) -> String {
         Ok(r) => {
             let credits = probe_credits(&r.endpoint).await;
             format!(
-                "{{\"ok\":true,\"endpoint\":{},\"limits\":{},\"credits\":{}}}",
+                "{{\"ok\":true,\"endpoint\":{},\"limits\":{},\"credits\":{},\"plan\":{}}}",
                 serde_json::to_string(&r.endpoint).unwrap_or_else(|_| "\"\"".into()),
                 r.json,
-                credits.unwrap_or_else(|| "null".into())
+                credits.unwrap_or_else(|| "null".into()),
+                plan_json()
             )
         }
         Err(e) => format!(
-            "{{\"ok\":false,\"error\":{}}}",
-            serde_json::to_string(&e).unwrap_or_else(|_| "\"relay-not-found\"".into())
+            "{{\"ok\":false,\"error\":{},\"plan\":{}}}",
+            serde_json::to_string(&e).unwrap_or_else(|_| "\"relay-not-found\"".into()),
+            plan_json()
         ),
     }
+}
+
+/// 套餐信息（无接口可取，配置填报）：planLabel / validUntil / totalCredits。
+fn plan_json() -> String {
+    let cfg: serde_json::Value =
+        serde_json::from_str(&crate::window::get_config()).unwrap_or(serde_json::Value::Null);
+    let pick = serde_json::json!({
+        "label": cfg.get("planLabel").cloned().unwrap_or(serde_json::Value::Null),
+        "validUntil": cfg.get("validUntil").cloned().unwrap_or(serde_json::Value::Null),
+        "totalCredits": cfg.get("totalCredits").cloned().unwrap_or(serde_json::Value::Null),
+    });
+    pick.to_string()
 }
 
 /// /v1/credits 目前 404；一旦上线且返回合法 JSON 就透传。
