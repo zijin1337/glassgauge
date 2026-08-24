@@ -1,7 +1,12 @@
 // 用量派生计算（spec §4.3）。纯函数，node --test 可测，不碰 DOM。
 
-export const WINDOW_LEN = { "5h": 18000, "7d": 604800, "30d": 2592000 };
-export const WINDOW_LABEL = { "5h": "5 小时窗口", "7d": "7 天窗口", "30d": "30 天窗口" };
+export const WINDOW_LEN = { "5h": 18000, "7d": 604800, "7d_fable": 604800, "30d": 2592000 };
+export const WINDOW_LABEL = {
+  "5h": "5 小时窗口",
+  "7d": "7 天窗口",
+  "7d_fable": "7 天 · Fable 专属",
+  "30d": "30 天窗口",
+};
 
 /** 单个窗口 -> 显示值。now 为 Unix 秒。 */
 export function deriveWindow(w, now) {
@@ -25,7 +30,7 @@ export function deriveWindow(w, now) {
 
 /** 全响应 -> {status, windows[], tight}。窗口按 5h/7d/30d 固定排序。 */
 export function deriveAll(limits, now) {
-  const order = ["5h", "7d", "30d"];
+  const order = ["5h", "7d", "7d_fable", "30d"];
   const windows = (limits.windows ?? [])
     .map((w) => deriveWindow(w, now))
     .filter(Boolean)

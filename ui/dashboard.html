@@ -81,17 +81,16 @@
   <div class="err" id="err"></div>
 
   <p class="note">
-    折算口径：1 credit = $0.04（Anthropic 表列价，实测 1 单位 = 1 美分）。
-    上方数字 = 窗口剩余额度折算，非账户总余额——官方 /v1/credits 端点上线后此页自动改显真实余额。
-    数据 30 秒自动刷新，倒计时实时走动。
+    "单位"为 mirasim 内部配额点数：实测计量权重按模型不同（fable ≈4.8×表列美分、sonnet ≈3.6×）
+    且近期频繁调整，credits ↔ 单位暂无稳定换算，故以百分比为准（不受单位口径影响，始终准确）。
+    官方 /v1/credits 端点上线后此页自动显示账户真实余额。数据 30 秒自刷新，倒计时实时走动。
   </p>
 
 <script>
 "use strict";
 // 与挂件 derive.js 同一套数学（此页独立成文，两处同改）
-const WIN_LEN = { "5h": 18000, "7d": 604800, "30d": 2592000 };
-const WIN_LABEL = { "5h": "5 小时窗口", "7d": "7 天窗口", "30d": "30 天窗口" };
-const CENTS_PER_CREDIT = 4;
+const WIN_LEN = { "5h": 18000, "7d": 604800, "7d_fable": 604800, "30d": 2592000 };
+const WIN_LABEL = { "5h": "5 小时窗口", "7d": "7 天窗口", "7d_fable": "7 天 · Fable 专属", "30d": "30 天窗口" };
 
 let last = null; // { limits, credits, endpoint, at }
 
@@ -112,8 +111,7 @@ function renderPlan(plan) {
   document.getElementById("plan-label").textContent = plan.label ?? "–";
   const total = plan.totalCredits;
   document.getElementById("plan-total").textContent = total != null ? fmt(total) : "–";
-  document.getElementById("plan-usd").textContent =
-    total != null ? `(≈ $${fmt(total * CENTS_PER_CREDIT / 100)} 表列价)` : "";
+  document.getElementById("plan-usd").textContent = "";
   document.getElementById("plan-until").textContent =
     plan.validUntil ? `套餐到期 ${plan.validUntil}` : "";
 }
@@ -143,17 +141,16 @@ function render() {
   cards.innerHTML = (last.limits.windows || []).map((w) => {
     const len = WIN_LEN[w.name] ?? 0;
     const usedPct = w.budget > 0 ? (w.used / w.budget) * 100 : 0;
-    const remainCents = Math.max(0, w.budget - w.used);
-    const credits = remainCents / CENTS_PER_CREDIT;
-    const usd = remainCents / 100;
+    const remainPct = Math.max(0, 100 - usedPct);
+    const remainUnits = Math.max(0, w.budget - w.used);
     const remaining = Math.max(0, w.reset_at - now);
     const pacePct = len ? Math.min(100, Math.max(0, ((len - remaining) / len) * 100)) : 0;
     const delta = usedPct - pacePct;
     return `
       <div class="card">
         <h2>${WIN_LABEL[w.name] ?? w.name} · 剩余</h2>
-        <div class="big">${fmt(credits)}<small>credits</small></div>
-        <div class="sub">≈ $${usd.toFixed(2)} 表列价 · 已用 ${usedPct.toFixed(1)}%（$${(w.used/100).toFixed(2)} / $${(w.budget/100).toFixed(0)}）</div>
+        <div class="big">${remainPct.toFixed(1)}<small>%</small></div>
+        <div class="sub">剩 ${fmt(remainUnits)} / ${fmt(w.budget)} 单位 · 已用 ${usedPct.toFixed(1)}%</div>
         <div class="bar"><div class="fill" style="width:${Math.min(100, usedPct).toFixed(2)}%"></div>
           <div class="tick" style="left:${pacePct.toFixed(2)}%"></div></div>
         <div class="l3"><span>${resetText(remaining)}</span>

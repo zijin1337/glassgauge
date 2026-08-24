@@ -186,7 +186,7 @@ function shellHtml({ dot, who, pct, fill, tickAt, stale }) {
 }
 
 function shortName(n) {
-  return { "5h": "5 小时", "7d": "7 天", "30d": "30 天" }[n] ?? n;
+  return { "5h": "5 小时", "7d": "7 天", "7d_fable": "Fable 7 天", "30d": "30 天" }[n] ?? n;
 }
 
 /* ---------- 拖动与位置 ---------- */
