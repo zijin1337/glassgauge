@@ -1,15 +1,19 @@
 //! 取数命令（spec §4.2）：语义不解析，把 /v1/limits 原文交给前端。
+//! 凭证发现见 auth.rs（mirasim 更新后需鉴权）。两级策略：先试缓存凭证，
+//! 失效则重新取凭证（重扫进程 / 重读配置）并认领。
 
+use crate::auth::{self, Creds};
 use crate::discovery;
 use serde::Serialize;
+use serde_json::Value;
 use std::sync::Mutex;
 use tauri::State;
 
-pub struct RelayState(pub Mutex<Option<u16>>);
+pub struct RelayState(pub Mutex<Option<Creds>>);
 
 impl Default for RelayState {
     fn default() -> Self {
-        Self(Mutex::new(discovery::load_cached()))
+        Self(Mutex::new(None))
     }
 }
 
@@ -19,8 +23,6 @@ pub struct LimitsResult {
     pub endpoint: String,
 }
 
-/// 取一次 limits：先试缓存端口，失败全量重扫认领（spec §4.1 的两级策略）。
-/// 返回 Err 让前端进入"未连接"降级态。
 #[tauri::command]
 pub async fn fetch_limits(state: State<'_, RelayState>) -> Result<LimitsResult, String> {
     fetch_limits_core(state.inner()).await
@@ -30,28 +32,30 @@ pub async fn fetch_limits(state: State<'_, RelayState>) -> Result<LimitsResult, 
 pub async fn fetch_limits_core(state: &RelayState) -> Result<LimitsResult, String> {
     let client = discovery::probe_client();
 
-    let cached = *state.0.lock().unwrap();
-    if let Some(port) = cached {
-        if let Some(json) = discovery::probe(&client, port).await {
+    // 1) 试缓存凭证
+    let cached = state.0.lock().unwrap().clone();
+    if let Some(c) = cached {
+        if let Some(json) = discovery::probe(&client, &c).await {
             return Ok(LimitsResult {
                 json,
-                endpoint: format!("http://127.0.0.1:{port}"),
+                endpoint: c.base_url.clone(),
             });
         }
     }
 
-    match discovery::scan(&client).await {
-        Some((port, json)) => {
-            *state.0.lock().unwrap() = Some(port);
-            discovery::save_cached(port);
-            Ok(LimitsResult {
+    // 2) 重新取凭证（配置手动 / 进程环境提取）并认领
+    let config: Value =
+        serde_json::from_str(&crate::window::get_config()).unwrap_or(Value::Null);
+    if let Some(c) = auth::acquire(&config) {
+        if let Some(json) = discovery::probe(&client, &c).await {
+            *state.0.lock().unwrap() = Some(c.clone());
+            return Ok(LimitsResult {
                 json,
-                endpoint: format!("http://127.0.0.1:{port}"),
-            })
-        }
-        None => {
-            *state.0.lock().unwrap() = None;
-            Err("relay-not-found".into())
+                endpoint: c.base_url,
+            });
         }
     }
+
+    *state.0.lock().unwrap() = None;
+    Err("relay-not-found".into())
 }

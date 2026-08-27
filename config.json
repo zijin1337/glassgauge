@@ -8,6 +8,7 @@
   "expand": "always",
   "autostart": true,
   "webPort": 8642,
+  "authMode": "auto",
   "accent": "auto",
   "wallpaperOffset": [0, 0],
   "glass": {

@@ -46,6 +46,17 @@ credits**（1 credit = $0.04 表列价，实测 1 限额单位 = 1 美分）、�
 `/v1/credits` 端点，一旦其返回 200 页面自动改显官方账户真实余额。
 只绑回环地址，随挂件开机自启。
 
+## 凭证发现（authMode）
+
+mirasim 2026-08 起 `/v1/limits` 需鉴权：token 每会话铸造、注入其 agent 进程
+环境、不落盘。挂件按 `authMode` 取凭证：
+
+- `auto`（默认）：读取同用户 mirasim-agent 进程的环境块，提取
+  `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`（仅这两个变量）。同用户读进程
+  环境是无需提权的标准操作；mirasim 不运行时自然取不到 → 显示未连接。
+- `manual`：用配置的 `baseUrl` + `authToken`（会话轮换后需手动更新）。
+- `none`：不取凭证（挂件仅作装饰）。
+
 ## 配置
 
 `%APPDATA%\glassgauge\config.json`（首次运行自动生成），托盘"立即刷新"热载：
@@ -56,6 +67,7 @@ credits**（1 credit = $0.04 表列价，实测 1 限额单位 = 1 美分）、�
   "expand": "always",         // always 常驻展开 | hover 悬停展开
   "autostart": true,          // 开机自启（HKCU Run 键，随 exe 位置自动更新）
   "webPort": 8642,            // 网页仪表盘端口（http://localhost:8642）
+  "authMode": "auto",        // 凭证来源：auto 进程环境 | manual（配 baseUrl+authToken）| none
   "accent": "auto",           // 主色：auto 壁纸取色（绕开绿）| blue | amber | ink | "#hex"
   "ink": "#000000",           // 可选：钉死字色（省略 = 随壁纸明暗自动黑/白字）
   "planLabel": "MAX",         // 徽章文字
