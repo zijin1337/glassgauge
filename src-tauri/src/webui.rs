@@ -79,6 +79,9 @@ fn plan_json() -> String {
         "label": cfg.get("planLabel").cloned().unwrap_or(serde_json::Value::Null),
         "validUntil": cfg.get("validUntil").cloned().unwrap_or(serde_json::Value::Null),
         "totalCredits": cfg.get("totalCredits").cloned().unwrap_or(serde_json::Value::Null),
+        // 单位→美元换算（列表价估算，可配）：默认 0.31 美分/单位，
+        // 来自真实混合用量反推（详见 README 计费说明）。
+        "centsPerUnit": cfg.get("centsPerUnit").cloned().unwrap_or(serde_json::json!(0.31)),
     });
     pick.to_string()
 }

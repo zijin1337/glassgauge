@@ -2,6 +2,7 @@
   "planLabel": "MAX",
   "validUntil": "2027-08-11",
   "totalCredits": 80000,
+  "centsPerUnit": 0.31,
   "refreshSeconds": 60,
   "alwaysOnTop": true,
   "mode": "refract",
