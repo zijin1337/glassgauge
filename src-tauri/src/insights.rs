@@ -165,13 +165,22 @@ pub fn throughput(records: &[Record], now: i64, lookback_secs: i64) -> Option<(S
     Some((pretty_model(&model), tok_per_s, sec_per_turn))
 }
 
+/// "claude-opus-4-8" → "Opus 4.8"、"claude-fable-5" → "Fable 5"。
+/// 通用：去 claude- 前缀，首段首字母大写作名字，其余（版本号）用 . 连接。
 fn pretty_model(id: &str) -> String {
-    match id {
-        "claude-fable-5" => "Fable 5".into(),
-        "claude-opus-5" => "Opus 5".into(),
-        "claude-sonnet-5" => "Sonnet 5".into(),
-        "claude-haiku-4-5" => "Haiku 4.5".into(),
-        other => other.into(),
+    let s = id.strip_prefix("claude-").unwrap_or(id);
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.is_empty() || parts[0].is_empty() {
+        return id.into();
+    }
+    let mut name = parts[0].to_string();
+    if let Some(c) = name.get_mut(0..1) {
+        c.make_ascii_uppercase();
+    }
+    if parts.len() > 1 {
+        format!("{} {}", name, parts[1..].join("."))
+    } else {
+        name
     }
 }
 

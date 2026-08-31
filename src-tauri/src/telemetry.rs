@@ -96,6 +96,8 @@ pub fn build_snapshot(
     let (dt, dr) = crate::insights::spend(records, prices, periods.0, now);
     let (wt, wr) = crate::insights::spend(records, prices, periods.1, now);
     let (mt, mr) = crate::insights::spend(records, prices, periods.2, now);
+    // 滚动 30 天：给面板做稳定的大字（日历"本月"会在月初归零，不适合当主数字）
+    let (r30t, r30r) = crate::insights::spend(records, prices, now - 30 * 86400, now);
     let live = crate::insights::throughput(records, now, 3600);
 
     json!({
@@ -112,6 +114,7 @@ pub fn build_snapshot(
             "today": { "usd": round2(dt), "reqs": dr },
             "week":  { "usd": round2(wt), "reqs": wr },
             "month": { "usd": round2(mt), "reqs": mr },
+            "rolling30": { "usd": round2(r30t), "reqs": r30r },
         },
         "live": live.map(|(m, tps, spt)| json!({
             "model": m, "tokPerSec": round1(tps), "secPerTurn": round1(spt)
@@ -173,7 +176,6 @@ fn atomic_write(path: &std::path::Path, content: &str) -> std::io::Result<()> {
 
 /// 后台循环：每 5s 取数、按 60s 采样历史、组装、双写。
 pub fn start(app: tauri::AppHandle) {
-    use tauri::Manager;
     std::thread::spawn(move || {
         let prices = crate::insights::load_prices();
         let skins_shared = std::path::PathBuf::from(
@@ -183,6 +185,25 @@ pub fn start(app: tauri::AppHandle) {
         .join("skins")
         .join("_shared");
         loop {
+            // 每轮包 catch_unwind：任何坏数据导致的 panic 只丢一帧，绝不拖垮线程/进程
+            let once = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tick(&app, &prices, &skins_shared);
+            }));
+            if once.is_err() {
+                eprintln!("telemetry: tick panicked, skipping this cycle");
+            }
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        }
+    });
+}
+
+fn tick(
+    app: &tauri::AppHandle,
+    prices: &HashMap<String, Price>,
+    skins_shared: &std::path::Path,
+) {
+    use tauri::Manager;
+    {
             let now = chrono::Local::now().timestamp();
             let state = app.state::<crate::relay::RelayState>();
             let res = tauri::async_runtime::block_on(crate::relay::fetch_limits_core(state.inner()));
@@ -216,7 +237,7 @@ pub fn start(app: tauri::AppHandle) {
                 connected,
                 &config,
                 &records,
-                &prices,
+                prices,
                 &samples,
                 now,
                 local_period_starts(now),
@@ -240,10 +261,7 @@ pub fn start(app: tauri::AppHandle) {
                 );
                 let _ = atomic_write(&skins_shared.join("telemetry.js"), &js);
             }
-
-            std::thread::sleep(std::time::Duration::from_secs(5));
-        }
-    });
+    }
 }
 
 fn last_limits() -> Value {
