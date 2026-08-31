@@ -11,6 +11,7 @@
   "webPort": 8642,
   "authMode": "auto",
   "accent": "auto",
+  "ink": "#060810",
   "wallpaperOffset": [0, 0],
   "glass": {
     "alpha": 0.03,

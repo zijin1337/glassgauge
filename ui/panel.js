@@ -92,12 +92,22 @@ function render(connected) {
       : connected
         ? `最紧窗口 · ${t ? shortName(t.name) : "–"}`
         : "连接丢失 · 显示最后数据",
-    pct: t ? t.usedPct + "%" : "–",
+    pct: t ? fmtUsd(unitsToUsd(t.remainUnits)) : "–",
     fill: t ? t.usedPct : 0,
     tickAt: t ? t.pacePct : 0,
     stale: !connected,
   });
   markDragRegion();
+}
+
+/* 单位→美元（列表价估算，centsPerUnit 可配，默认 0.31¢/单位） */
+function fmtUsd(v) {
+  if (v >= 100) return "$" + Math.round(v).toLocaleString("en-US");
+  if (v >= 10) return "$" + v.toFixed(1);
+  return "$" + v.toFixed(2);
+}
+function unitsToUsd(u) {
+  return (u * (config?.centsPerUnit ?? 0.31)) / 100;
 }
 
 /* ---------- 展开态（spec 形态 C：悬停 304 宽三窗口卡） ---------- */
@@ -111,13 +121,13 @@ function expandedHtml(all, connected) {
         <div class="r1">
           <span class="win">${w.label}</span>
           <span class="rem">剩余 ${w.remPct}%</span>
-          <span class="pct2">${w.usedPct}%</span>
+          <span class="pct2">${fmtUsd(unitsToUsd(w.remainUnits))}</span>
         </div>
         <div class="bar">
           <div class="fill" style="width:${w.usedPct}%"></div>
           <div class="tick" style="left:${w.pacePct}%"></div>
         </div>
-        <div class="l3"><span>${w.resetText}</span><span class="d">${w.deltaText}</span></div>
+        <div class="l3"><span>额度 ${fmtUsd(unitsToUsd(w.budgetUnits))} · 已用 ${w.usedPct}%</span><span class="d">${w.resetText}</span></div>
       </div>`,
     )
     .join("");

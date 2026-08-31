@@ -25,6 +25,10 @@ export function deriveWindow(w, now) {
     delta: round1(delta),
     deltaText: `匀速线 ${round1(pacePct)}% · ${delta >= 0 ? "超前" : "落后"} ${Math.abs(round1(delta))}%`,
     resetText: resetText(remaining),
+    // 原始额度单位（美元折算用；换算率在渲染层乘 centsPerUnit）
+    budgetUnits: w.budget,
+    usedUnits: w.used,
+    remainUnits: Math.max(0, w.budget - w.used),
   };
 }
 

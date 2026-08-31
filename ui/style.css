@@ -3,13 +3,15 @@
 
 :root {
   --alpha: 0.03;
-  --ink: #171a22;
-  --accent: #3b82d8;
+  --ink: #050608;
+  --accent: #1f6fd0;
   --shell-border: rgba(255, 255, 255, 0.26);
-  --track: rgba(0, 0, 0, 0.12);
-  --tick: rgba(0, 0, 0, 0.45);
+  --track: rgba(0, 0, 0, 0.16);
+  --tick: rgba(0, 0, 0, 0.5);
   --radius-collapsed: 20px;
   --radius-card: 14px;
+  /* 玻璃很透，背景明暗不定：给文字一圈浅色描边，黑字在任何背景都清晰 */
+  --halo: 0 0 3px rgba(255, 255, 255, 0.9), 0 1px 2px rgba(255, 255, 255, 0.6);
 }
 
 html, body {
@@ -20,6 +22,7 @@ html, body {
   background: transparent;
   font: 13px/1.45 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
   color: var(--ink);
+  text-shadow: var(--halo);
 }
 
 /* L2：壁纸折射层。外层负责圆角裁剪（滤镜的模糊会溢出矩形，必须裁在父级）；
@@ -88,20 +91,20 @@ html, body {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
 }
-.exp { margin-left: auto; font-size: 9.5px; opacity: 0.55; }
+.exp { margin-left: auto; font-size: 9.5px; opacity: 0.75; }
 .card {
   margin-top: 9px;
   padding: 10px 11px 9px;
   border-radius: var(--radius-card);
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.16);
   box-shadow: inset 0 0 12px -8px rgba(0, 0, 0, 0.18);
 }
 .r1 { display: flex; align-items: baseline; gap: 8px; }
 .win { font-size: 12.5px; font-weight: 600; }
-.rem { margin-left: auto; font-size: 10px; opacity: 0.6; }
-.pct2 { font-size: 19px; font-weight: 780; letter-spacing: -0.3px; color: var(--accent); }
+.rem { margin-left: auto; font-size: 10px; opacity: 0.82; }
+.pct2 { font-size: 18px; font-weight: 800; letter-spacing: -0.3px; color: var(--ink); }
 .card .bar { height: 7px; margin: 7px 0 6px; }
-.l3 { display: flex; font-size: 9.5px; opacity: 0.62; }
+.l3 { display: flex; font-size: 9.5px; opacity: 0.82; }
 .l3 .d { margin-left: auto; }
 
 /* 折叠态 */
@@ -116,11 +119,11 @@ html, body {
 .dot.red { background: #e2504c; box-shadow: 0 0 7px #e2504c; }
 .dot.amber { background: #e8a13d; box-shadow: 0 0 7px #e8a13d; }
 .dot.blue { background: #4c9be2; box-shadow: 0 0 7px #4c9be2; }
-.who { font-size: 10.5px; opacity: 0.72; white-space: nowrap; }
+.who { font-size: 10.5px; opacity: 0.85; white-space: nowrap; }
 .pct {
   margin-left: auto;
   font-size: 22px; font-weight: 800; letter-spacing: -0.5px;
-  color: var(--accent);
+  color: var(--ink);
 }
 .bar {
   position: relative;
