@@ -17,6 +17,7 @@ notify = "6"
 winreg = "0.52"
 base64 = "0.22"
 tiny_http = "0.12"
+chrono = { version = "0.4", features = ["clock", "std"], default-features = false }
 # 原生折射引擎（spec 2026-08-18-glassgauge-native-refraction-engine）
 windows = { version = "0.61", features = [
   "Win32_Foundation",

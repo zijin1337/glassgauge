@@ -3,7 +3,10 @@
 mod auth;
 mod discovery;
 mod engine;
+mod history;
+mod insights;
 mod relay;
+mod telemetry;
 mod wallpaper;
 mod webui;
 mod window;

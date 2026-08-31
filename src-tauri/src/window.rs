@@ -206,6 +206,8 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
         .and_then(|p| u16::try_from(p).ok())
         .unwrap_or(8642);
     crate::webui::start(app.handle().clone(), web_port);
+    // 遥测后台：每 5s 写 telemetry.json + skins/_shared/telemetry.js（内嵌胶囊数据源）
+    crate::telemetry::start(app.handle().clone());
     build_tray(app.handle(), on_top, mode == "refract" && !spiking)?;
     Ok(())
 }
