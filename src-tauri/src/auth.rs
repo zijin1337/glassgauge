@@ -15,24 +15,38 @@ pub struct Creds {
     pub token: String,
 }
 
-/// 按配置取凭证：manual 用配置里的 baseUrl+authToken；否则从进程环境提取。
-pub fn acquire(config: &Value) -> Option<Creds> {
+/// 按配置取所有候选凭证：manual 用配置里的 baseUrl+authToken；否则从进程环境
+/// 提取全部（多个 mirasim-agent 进程可能共存，含带失效旧凭证的；调用方逐个探测）。
+pub fn acquire_all(config: &Value) -> Vec<Creds> {
     let mode = config.get("authMode").and_then(Value::as_str).unwrap_or("auto");
     if mode == "manual" {
-        let base = config.get("baseUrl").and_then(Value::as_str)?;
-        let token = config.get("authToken").and_then(Value::as_str)?;
-        if base.is_empty() || token.is_empty() {
-            return None;
-        }
-        return Some(Creds {
-            base_url: base.trim_end_matches('/').to_string(),
-            token: token.to_string(),
-        });
+        let (Some(base), Some(token)) = (
+            config.get("baseUrl").and_then(Value::as_str),
+            config.get("authToken").and_then(Value::as_str),
+        ) else {
+            return vec![];
+        };
+        return valid(base, token).into_iter().collect();
     }
     if mode == "none" {
-        return None;
+        return vec![];
     }
     find_in_processes()
+}
+
+/// 校验一对凭证：base_url 必须是纯 ASCII 的 http(s) URL（滤掉乱码/半读的环境块），
+/// token 非空 ASCII。返回规范化后的 Creds。
+fn valid(base: &str, token: &str) -> Option<Creds> {
+    let base = base.trim().trim_end_matches('/');
+    let token = token.trim();
+    let url_ok = base.is_ascii()
+        && (base.starts_with("http://") || base.starts_with("https://"))
+        && !base.contains(char::is_whitespace);
+    let tok_ok = token.is_ascii() && token.len() >= 8 && !token.contains(char::is_whitespace);
+    (url_ok && tok_ok).then(|| Creds {
+        base_url: base.to_string(),
+        token: token.to_string(),
+    })
 }
 
 #[cfg(windows)]
@@ -112,39 +126,42 @@ mod win {
         }
     }
 
-    pub fn find() -> Option<Creds> {
+    /// 收集所有进程里的合法且互异的凭证（含可能失效的旧凭证，调用方逐个探测）。
+    pub fn find_all() -> Vec<Creds> {
+        let mut out: Vec<Creds> = Vec::new();
         unsafe {
-            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
+            let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+                return out;
+            };
             let mut e = PROCESSENTRY32W {
                 dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
                 ..Default::default()
             };
             let mut ok = Process32FirstW(snap, &mut e).is_ok();
-            let mut found = None;
             while ok {
-                // 跳过系统闲置/System（pid 0/4）
                 if e.th32ProcessID > 4 {
                     if let Some(c) = creds_of(e.th32ProcessID) {
-                        found = Some(c);
-                        break;
+                        if !out.iter().any(|x| *x == c) {
+                            out.push(c);
+                        }
                     }
                 }
                 ok = Process32NextW(snap, &mut e).is_ok();
             }
             let _ = CloseHandle(snap);
-            found
         }
+        out
     }
 }
 
 #[cfg(windows)]
-fn find_in_processes() -> Option<Creds> {
-    win::find()
+fn find_in_processes() -> Vec<Creds> {
+    win::find_all()
 }
 
 #[cfg(not(windows))]
-fn find_in_processes() -> Option<Creds> {
-    None
+fn find_in_processes() -> Vec<Creds> {
+    Vec::new()
 }
 
 /// UTF-16LE、NUL 分隔的 KEY=VALUE 环境块 → 提取两个 ANTHROPIC_ 变量。
@@ -164,9 +181,7 @@ fn parse_env(raw: &[u8]) -> Option<Creds> {
         }
     }
     match (base, token) {
-        (Some(b), Some(t)) if !b.is_empty() && !t.is_empty() => {
-            Some(Creds { base_url: b, token: t })
-        }
+        (Some(b), Some(t)) => valid(&b, &t), // 校验滤掉半读/乱码的环境块
         _ => None,
     }
 }
@@ -208,15 +223,29 @@ mod tests {
     #[test]
     fn manual_mode_reads_config() {
         let cfg = serde_json::json!({
-            "authMode": "manual", "baseUrl": "http://127.0.0.1:9/", "authToken": "tok"
+            "authMode": "manual", "baseUrl": "http://127.0.0.1:9/", "authToken": "tok12345"
         });
-        let c = acquire(&cfg).unwrap();
-        assert_eq!(c.base_url, "http://127.0.0.1:9");
-        assert_eq!(c.token, "tok");
+        let all = acquire_all(&cfg);
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].base_url, "http://127.0.0.1:9");
+        assert_eq!(all[0].token, "tok12345");
     }
 
     #[test]
     fn none_mode_yields_nothing() {
-        assert!(acquire(&serde_json::json!({ "authMode": "none" })).is_none());
+        assert!(acquire_all(&serde_json::json!({ "authMode": "none" })).is_empty());
+    }
+
+    #[test]
+    fn rejects_garbled_or_short() {
+        // 非 ASCII（半读乱码）
+        assert!(valid("http://127.0.0৥xyz", "tok12345").is_none());
+        // 非 http
+        assert!(valid("ftp://x", "tok12345").is_none());
+        // token 过短
+        assert!(valid("http://127.0.0.1:9", "abc").is_none());
+        // 带路径的正常 base_url（新版桥）应通过
+        let c = valid("http://127.0.0.1:64263/xGzuqvWFiO04MDM", "S9WNtoken12").unwrap();
+        assert_eq!(c.base_url, "http://127.0.0.1:64263/xGzuqvWFiO04MDM");
     }
 }

@@ -43,10 +43,10 @@ pub async fn fetch_limits_core(state: &RelayState) -> Result<LimitsResult, Strin
         }
     }
 
-    // 2) 重新取凭证（配置手动 / 进程环境提取）并认领
+    // 2) 重新取凭证并逐个认领（多个 agent 进程可能共存，含带失效旧凭证的）
     let config: Value =
         serde_json::from_str(&crate::window::get_config()).unwrap_or(Value::Null);
-    if let Some(c) = auth::acquire(&config) {
+    for c in auth::acquire_all(&config) {
         if let Some(json) = discovery::probe(&client, &c).await {
             *state.0.lock().unwrap() = Some(c.clone());
             return Ok(LimitsResult {
