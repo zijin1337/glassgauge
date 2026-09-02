@@ -132,11 +132,21 @@ pub fn req_count(records: &[Record], start: i64, end: i64, fable_only: bool) -> 
         .count() as u32
 }
 
-/// [start,end) 内真实列表价花费与次数。
-pub fn spend(records: &[Record], prices: &HashMap<String, Price>, start: i64, end: i64) -> (f64, u32) {
+/// [start,end) 内真实列表价花费与次数；fable_only 时只算 fable 模型（给 7d_fable 窗口用）。
+pub fn spend(
+    records: &[Record],
+    prices: &HashMap<String, Price>,
+    start: i64,
+    end: i64,
+    fable_only: bool,
+) -> (f64, u32) {
     let mut usd = 0.0;
     let mut n = 0u32;
-    for r in records.iter().filter(|r| r.ts >= start && r.ts < end) {
+    for r in records
+        .iter()
+        .filter(|r| r.ts >= start && r.ts < end)
+        .filter(|r| !fable_only || r.model.contains("fable"))
+    {
         if let Some(u) = record_usd(r, prices) {
             usd += u;
             n += 1;
@@ -244,11 +254,21 @@ mod tests {
     #[test]
     fn spend_uses_list_price() {
         let rs = vec![rec(100, "claude-fable-5", 1_000_000.0, 0.0, 1.0)]; // 1M input @ $10/M
-        let (usd, n) = spend(&rs, &prices(), 0, 200);
+        let (usd, n) = spend(&rs, &prices(), 0, 200, false);
         assert!((usd - 10.0).abs() < 1e-9);
         assert_eq!(n, 1);
         // 窗口外不计
-        assert_eq!(spend(&rs, &prices(), 0, 50).1, 0);
+        assert_eq!(spend(&rs, &prices(), 0, 50, false).1, 0);
+    }
+
+    #[test]
+    fn spend_fable_only_filter() {
+        let rs = vec![
+            rec(100, "claude-fable-5", 1_000_000.0, 0.0, 1.0), // $10
+            rec(150, "claude-opus-5", 1_000_000.0, 0.0, 1.0),  // $5，非 fable
+        ];
+        assert!((spend(&rs, &prices(), 0, 200, false).0 - 15.0).abs() < 1e-9); // 全部
+        assert!((spend(&rs, &prices(), 0, 200, true).0 - 10.0).abs() < 1e-9); // 只 fable
     }
 
     #[test]

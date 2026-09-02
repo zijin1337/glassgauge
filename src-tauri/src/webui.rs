@@ -55,10 +55,11 @@ async fn api_limits(state: &crate::relay::RelayState) -> String {
     match crate::relay::fetch_limits_core(state).await {
         Ok(r) => {
             let credits = probe_credits(&r.endpoint).await;
+            let limits = crate::telemetry::enrich_limits(&r.json); // 每窗口注入已花÷已用% 派生美元
             format!(
                 "{{\"ok\":true,\"endpoint\":{},\"limits\":{},\"credits\":{},\"plan\":{}}}",
                 serde_json::to_string(&r.endpoint).unwrap_or_else(|_| "\"\"".into()),
-                r.json,
+                limits,
                 credits.unwrap_or_else(|| "null".into()),
                 plan_json()
             )

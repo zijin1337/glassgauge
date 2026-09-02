@@ -25,7 +25,10 @@ pub struct LimitsResult {
 
 #[tauri::command]
 pub async fn fetch_limits(state: State<'_, RelayState>) -> Result<LimitsResult, String> {
-    fetch_limits_core(state.inner()).await
+    let mut r = fetch_limits_core(state.inner()).await?;
+    // 桌面浮窗也拿到已花÷已用% 派生美元（与网页/胶囊统一口径）
+    r.json = crate::telemetry::enrich_limits(&r.json);
+    Ok(r)
 }
 
 /// 同一逻辑的非命令入口（webui 等后台消费方用）。

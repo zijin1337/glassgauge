@@ -25,10 +25,15 @@ export function deriveWindow(w, now) {
     delta: round1(delta),
     deltaText: `匀速线 ${round1(pacePct)}% · ${delta >= 0 ? "超前" : "落后"} ${Math.abs(round1(delta))}%`,
     resetText: resetText(remaining),
-    // 原始额度单位（美元折算用；换算率在渲染层乘 centsPerUnit）
+    // 原始额度单位（美元折算兜底用；换算率在渲染层乘 centsPerUnit）
     budgetUnits: w.budget,
     usedUnits: w.used,
     remainUnits: Math.max(0, w.budget - w.used),
+    // 后端派生的美元（已花÷已用% 法，学 mirasim-telemetry）；缺失时渲染层退回 units×cents
+    usedUsd: w.usedUsd,
+    budgetUsd: w.budgetUsd,
+    remainUsd: w.remainUsd,
+    usdEstimated: w.usdEstimated,
   };
 }
 

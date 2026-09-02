@@ -92,7 +92,7 @@ function render(connected) {
       : connected
         ? `最紧窗口 · ${t ? shortName(t.name) : "–"}`
         : "连接丢失 · 显示最后数据",
-    pct: t ? fmtUsd(unitsToUsd(t.remainUnits)) : "–",
+    pct: t ? fmtUsd(usdOr(t.remainUsd, t.remainUnits)) : "–",
     fill: t ? t.usedPct : 0,
     tickAt: t ? t.pacePct : 0,
     stale: !connected,
@@ -109,6 +109,10 @@ function fmtUsd(v) {
 function unitsToUsd(u) {
   return (u * (config?.centsPerUnit ?? 0.31)) / 100;
 }
+// 优先用后端派生美元（已花÷已用%），缺失退回 units×centsPerUnit
+function usdOr(usd, units) {
+  return typeof usd === "number" ? usd : unitsToUsd(units);
+}
 
 /* ---------- 展开态（spec 形态 C：悬停 304 宽三窗口卡） ---------- */
 function expandedHtml(all, connected) {
@@ -121,13 +125,13 @@ function expandedHtml(all, connected) {
         <div class="r1">
           <span class="win">${w.label}</span>
           <span class="rem">剩余 ${w.remPct}%</span>
-          <span class="pct2">${fmtUsd(unitsToUsd(w.remainUnits))}</span>
+          <span class="pct2">${fmtUsd(usdOr(w.remainUsd, w.remainUnits))}</span>
         </div>
         <div class="bar">
           <div class="fill" style="width:${w.usedPct}%"></div>
           <div class="tick" style="left:${w.pacePct}%"></div>
         </div>
-        <div class="l3"><span>额度 ${fmtUsd(unitsToUsd(w.budgetUnits))} · 已用 ${w.usedPct}%</span><span class="d">${w.resetText}</span></div>
+        <div class="l3"><span>额度 ${fmtUsd(usdOr(w.budgetUsd, w.budgetUnits))} · 已用 ${w.usedPct}%</span><span class="d">${w.resetText}</span></div>
       </div>`,
     )
     .join("");

@@ -26,6 +26,72 @@ fn window_label(name: &str) -> &str {
     }
 }
 
+/// 窗口美元（学 mirasim-telemetry：**已花 ÷ 已用% = 整窗金额**）。
+/// 已花来自 insights 日志逐次真实计量（7d_fable 只算 fable），已用% 来自 /v1/limits 精确点数，
+/// 相除得整窗预算——不依赖会漂移的"单位→美元"常数。日志没覆盖到 / 刚重置(≈0%)时退回
+/// units×centsPerUnit 兜底。返回 (usedUsd, budgetUsd, remainUsd, estimated)。
+pub fn window_usd(
+    records: &[Record],
+    prices: &HashMap<String, Price>,
+    name: &str,
+    used_units: f64,
+    budget_units: f64,
+    reset_at: i64,
+    now: i64,
+    cents_per_unit: f64,
+) -> (f64, f64, f64, bool) {
+    let used_frac = if budget_units > 0.0 { used_units / budget_units } else { 0.0 };
+    if let Some(len) = window_len(name) {
+        let win_start = reset_at - len;
+        let fable_only = name == "7d_fable";
+        let (spent, _) = crate::insights::spend(records, prices, win_start, now, fable_only);
+        // 已用% 太小(<0.5%)时相除会放大噪声；有真实花费且已用够多才用精确法
+        if spent > 0.0 && used_frac > 0.005 {
+            let budget = spent / used_frac;
+            return (spent, budget, (budget - spent).max(0.0), false);
+        }
+    }
+    // 兜底：units × centsPerUnit（旧口径）
+    let to_usd = |u: f64| u * cents_per_unit / 100.0;
+    (
+        to_usd(used_units),
+        to_usd(budget_units),
+        to_usd((budget_units - used_units).max(0.0)),
+        true,
+    )
+}
+
+/// 给 limits 的每个窗口注入 usedUsd/budgetUsd/remainUsd/usdEstimated（同一套 window_usd）。
+/// 浮窗命令与网页 API 共用，让三处美元口径一致。解析失败原样返回。
+pub fn enrich_limits(raw: &str) -> String {
+    let mut v: Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return raw.to_string(),
+    };
+    let cfg: Value = serde_json::from_str(&crate::window::get_config()).unwrap_or(Value::Null);
+    let cpu = cfg.get("centsPerUnit").and_then(Value::as_f64).unwrap_or(0.31);
+    let now = Local::now().timestamp();
+    let records = crate::insights::load_records();
+    let prices = crate::insights::load_prices();
+    if let Some(ws) = v.get_mut("windows").and_then(Value::as_array_mut) {
+        for w in ws.iter_mut() {
+            let name = w.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+            let used = w.get("used").and_then(Value::as_f64).unwrap_or(0.0);
+            let budget = w.get("budget").and_then(Value::as_f64).unwrap_or(0.0);
+            let reset_at = w.get("reset_at").and_then(Value::as_i64).unwrap_or(now);
+            let (uu, bu, ru, est) =
+                window_usd(&records, &prices, &name, used, budget, reset_at, now, cpu);
+            if let Some(o) = w.as_object_mut() {
+                o.insert("usedUsd".into(), json!(round2(uu)));
+                o.insert("budgetUsd".into(), json!(round2(bu)));
+                o.insert("remainUsd".into(), json!(round2(ru)));
+                o.insert("usdEstimated".into(), Value::Bool(est));
+            }
+        }
+    }
+    v.to_string()
+}
+
 /// 组装 __ggTelemetry 值。now 为 Unix 秒；periods 为 (今日/本周/本月) 起点。
 #[allow(clippy::too_many_arguments)]
 pub fn build_snapshot(
@@ -39,7 +105,6 @@ pub fn build_snapshot(
     periods: (i64, i64, i64), // (today_start, week_start, month_start)
 ) -> Value {
     let cpu = config.get("centsPerUnit").and_then(Value::as_f64).unwrap_or(0.31);
-    let to_usd = |units: f64| units * cpu / 100.0;
 
     let account = limits
         .get("subject")
@@ -77,6 +142,9 @@ pub fn build_snapshot(
         let exhaust_text = crate::history::exhaust_at(remain_pct, burn, reset_at, now)
             .map(fmt_exhaust)
             .unwrap_or_else(|| "够到重置".into());
+        // 已花÷已用% 派生美元（学 mirasim-telemetry）
+        let (used_usd, budget_usd, remain_usd, estimated) =
+            window_usd(records, prices, name, used, budget, reset_at, now, cpu);
 
         windows.push(json!({
             "name": name,
@@ -84,7 +152,8 @@ pub fn build_snapshot(
             "usedUnits": used, "budgetUnits": budget, "remainUnits": (budget - used).max(0.0),
             "usedPct": round1(used_pct), "remainPct": round1(remain_pct),
             "pacePct": round1(pace_pct), "deltaText": delta_text,
-            "usedUsd": to_usd(used), "budgetUsd": to_usd(budget), "remainUsd": to_usd((budget - used).max(0.0)),
+            "usedUsd": round2(used_usd), "budgetUsd": round2(budget_usd), "remainUsd": round2(remain_usd),
+            "usdEstimated": estimated,
             "reqCount": req_count,
             "burnPerHour": round2(burn),
             "resetText": fmt_reset(remaining),
@@ -93,11 +162,11 @@ pub fn build_snapshot(
         }));
     }
 
-    let (dt, dr) = crate::insights::spend(records, prices, periods.0, now);
-    let (wt, wr) = crate::insights::spend(records, prices, periods.1, now);
-    let (mt, mr) = crate::insights::spend(records, prices, periods.2, now);
+    let (dt, dr) = crate::insights::spend(records, prices, periods.0, now, false);
+    let (wt, wr) = crate::insights::spend(records, prices, periods.1, now, false);
+    let (mt, mr) = crate::insights::spend(records, prices, periods.2, now, false);
     // 滚动 30 天：给面板做稳定的大字（日历"本月"会在月初归零，不适合当主数字）
-    let (r30t, r30r) = crate::insights::spend(records, prices, now - 30 * 86400, now);
+    let (r30t, r30r) = crate::insights::spend(records, prices, now - 30 * 86400, now, false);
     let live = crate::insights::throughput(records, now, 3600);
 
     json!({
@@ -323,6 +392,39 @@ mod tests {
         ]});
         let snap = build_snapshot(&lim, true, &cfg(), &[], &HashMap::new(), &[], 0, (0, 0, 0));
         assert_eq!(snap["windows"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn window_usd_spent_over_pct() {
+        // 窗口 [reset-18000, now]；日志里这段有真实花费 $12（1.2M input fable @ $10/M）
+        let mut prices = HashMap::new();
+        prices.insert("claude-fable-5".to_string(), (10.0, 50.0, 1.0, 12.5));
+        let recs = vec![crate::insights::Record {
+            ts: 95000,
+            model: "claude-fable-5".into(),
+            via_relay: true,
+            input: 1_200_000.0,
+            output: 0.0,
+            cache_read: 0.0,
+            cache_write: 0.0,
+            duration_ms: 1.0,
+        }];
+        // used 10% → 整窗 = 12 / 0.10 = $120，剩 $108
+        let (used, budget, remain, est) =
+            window_usd(&recs, &prices, "5h", 100.0, 1000.0, 100000, 100000, 0.31);
+        assert!(!est, "有花费且已用够 → 精确法");
+        assert!((used - 12.0).abs() < 1e-6);
+        assert!((budget - 120.0).abs() < 1e-6);
+        assert!((remain - 108.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn window_usd_falls_back_when_no_logs() {
+        // 无日志 → 退回 units×centsPerUnit
+        let (used, _b, _r, est) =
+            window_usd(&[], &HashMap::new(), "5h", 1000.0, 10000.0, 100000, 100000, 0.31);
+        assert!(est, "无日志 → 估算兜底");
+        assert!((used - 1000.0 * 0.31 / 100.0).abs() < 1e-9);
     }
 
     #[test]
